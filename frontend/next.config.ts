@@ -13,11 +13,13 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: false, // Keep TypeScript checks
   },
   // Allow connections to FastAPI backend
+  // Use environment variable for backend URL, fallback to backend container name
   async rewrites() {
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://backend:8080';
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:8000/api/:path*',
+        destination: `${backendUrl}/api/:path*`,
       },
     ];
   },
