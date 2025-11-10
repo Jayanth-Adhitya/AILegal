@@ -13,15 +13,35 @@ RUN npm ci
 # Rebuild the source code only when needed
 FROM base AS builder
 WORKDIR /app
+
+# Copy node_modules from deps stage
 COPY --from=deps /app/node_modules ./node_modules
-COPY frontend/ .
+
+# Copy all source files explicitly
+COPY frontend/package.json frontend/package-lock.json* ./
+COPY frontend/next.config.ts ./
+COPY frontend/next-env.d.ts ./
+COPY frontend/tsconfig.json ./
+COPY frontend/tailwind.config.ts ./
+COPY frontend/postcss.config.mjs ./
+COPY frontend/components.json ./
+COPY frontend/.eslintrc.json ./
+
+# Copy source directories
+COPY frontend/app ./app
+COPY frontend/components ./components
+COPY frontend/lib ./lib
 
 # Ensure public directory exists
 RUN mkdir -p public
 
 # Build arguments for environment variables
 ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+
+# Debug: Print environment variable and list files
+RUN echo "Building with NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}"
+RUN echo "Files in /app:" && ls -la
 
 # Build the application
 RUN npm run build
