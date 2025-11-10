@@ -8,6 +8,15 @@ This guide provides step-by-step instructions for deploying the AI Legal Assista
 - Git repository with this code (GitHub, GitLab, etc.)
 - Google API Key (Gemini API)
 
+## Important: Port Configuration
+
+**For Coolify deployments**, the `docker-compose.yml` uses `expose` instead of `ports`. This allows Coolify's reverse proxy to handle port mapping without conflicts.
+
+**For local testing**, use `docker-compose.local.yml` which includes port mappings:
+```bash
+docker-compose -f docker-compose.local.yml up -d
+```
+
 ## Deployment Steps
 
 ### 1. Prepare Your Repository
@@ -36,6 +45,8 @@ git push origin main
    - **Repository**: Select or enter your repository URL
    - **Branch**: `main` (or your deployment branch)
    - **Docker Compose Location**: `/docker-compose.yml`
+
+**Note**: The docker-compose.yml uses `expose` instead of `ports` to avoid port conflicts. Coolify will automatically handle port mapping through its reverse proxy.
 
 ### 4. Configure Environment Variables
 
@@ -166,6 +177,16 @@ Enable automatic deployments in Coolify:
 
 ## Troubleshooting
 
+### Issue: Port Already Allocated Error
+
+**Error**: `Bind for 0.0.0.0:8000 failed: port is already allocated`
+
+**Solution**:
+- Ensure you're using the main `docker-compose.yml` (not docker-compose.local.yml)
+- The main docker-compose.yml uses `expose` instead of `ports`
+- Stop any existing containers: In Coolify, delete the old deployment before creating new one
+- Coolify handles port mapping automatically via its reverse proxy
+
 ### Issue: Build Fails
 
 **Check build logs** in Coolify for specific errors.
@@ -174,6 +195,7 @@ Common causes:
 - Missing dependencies in Dockerfile
 - Invalid docker-compose.yml syntax
 - Build timeout (increase in Coolify settings)
+- Port conflicts (use `expose` not `ports` in docker-compose.yml)
 
 ### Issue: Frontend Can't Connect to Backend
 

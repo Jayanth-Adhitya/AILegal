@@ -41,11 +41,11 @@ if grep -q "your_google_api_key_here" .env.production; then
 fi
 
 echo "Step 1: Building Docker images..."
-docker-compose build
+docker-compose -f docker-compose.local.yml build
 
 echo ""
 echo "Step 2: Starting services..."
-docker-compose up -d
+docker-compose -f docker-compose.local.yml up -d
 
 echo ""
 echo "Step 3: Waiting for services to be healthy..."
@@ -96,6 +96,6 @@ echo "2. Go to the Policies page and upload your company policies"
 echo "3. Click 'Reingest Policies' to update the vector database"
 echo "4. Start analyzing contracts!"
 echo ""
-echo "To view logs: docker-compose logs -f"
-echo "To stop: docker-compose down"
+echo "To view logs: docker-compose -f docker-compose.local.yml logs -f"
+echo "To stop: docker-compose -f docker-compose.local.yml down"
 echo ""

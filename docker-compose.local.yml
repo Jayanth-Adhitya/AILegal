@@ -1,17 +1,17 @@
 version: '3.8'
 
+# This docker-compose file is for LOCAL TESTING ONLY
+# For Coolify deployment, use docker-compose.yml
+
 services:
   backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
+    container_name: legal-assistant-backend
     restart: unless-stopped
-    # Use expose instead of ports for Coolify - let Coolify handle port mapping
-    expose:
-      - "8000"
-    # For local testing, uncomment the ports line below and comment out expose
-    # ports:
-    #   - "${BACKEND_PORT:-8000}:8000"
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
     env_file:
       - .env.production
     environment:
@@ -53,13 +53,10 @@ services:
       dockerfile: Dockerfile.frontend
       args:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    container_name: legal-assistant-frontend
     restart: unless-stopped
-    # Use expose instead of ports for Coolify - let Coolify handle port mapping
-    expose:
-      - "3000"
-    # For local testing, uncomment the ports line below and comment out expose
-    # ports:
-    #   - "${FRONTEND_PORT:-3000}:3000"
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://backend:8000}
     depends_on:
