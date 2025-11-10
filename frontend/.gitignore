@@ -31,4 +31,4 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
+# next-env.d.ts - commented out, this file is needed for build
