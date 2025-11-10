@@ -1,0 +1,29 @@
+# Node
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Next.js
+.next
+out
+.swc
+
+# Environment
+.env*.local
+.env
+
+# IDE
+.vscode
+.idea
+
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+DEPLOYMENT.md
+
+# OS
+.DS_Store
+Thumbs.db
