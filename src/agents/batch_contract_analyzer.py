@@ -113,15 +113,30 @@ class BatchContractAnalyzer:
 
         # Execute with rate limiting and retry
         def api_call():
-            return self.llm.invoke(
-                batch_prompt,
-                generation_config={
-                    "response_mime_type": "application/json"
-                }
-            )
+            logger.info(f"📤 Prompt length: {len(batch_prompt)} characters")
+            logger.info(f"📤 Analyzing {len(clauses)} clauses")
+            try:
+                result = self.llm.invoke(
+                    batch_prompt,
+                    generation_config={
+                        "response_mime_type": "application/json"
+                    }
+                )
+                logger.info("✅ API call successful")
+                return result
+            except Exception as e:
+                logger.error(f"❌ API call failed: {type(e).__name__}: {str(e)}")
+                raise
 
         logger.info("🚀 Sending batch analysis request to Gemini...")
         response = self.rate_limiter.execute_with_retry(api_call)
+
+        # Log response details for debugging
+        logger.info(f"📥 Received response from Gemini")
+        logger.info(f"Response type: {type(response)}")
+        logger.info(f"Response content type: {type(response.content)}")
+        logger.info(f"Response content length: {len(str(response.content))}")
+        logger.info(f"Response content preview: {str(response.content)[:500]}")
 
         # Parse response
         try:
