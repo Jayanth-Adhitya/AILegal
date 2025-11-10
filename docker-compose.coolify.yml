@@ -1,24 +1,19 @@
 version: '3.8'
 
+# Simplified docker-compose for Coolify with port 80 for easier routing
+# Use this if you're having issues with the standard docker-compose.yml
+
 services:
   backend:
-    container_name: legal-assistant-backend
     build:
       context: .
       dockerfile: Dockerfile.backend
     restart: unless-stopped
-    # Use expose instead of ports for Coolify - let Coolify handle port mapping
     expose:
       - "8000"
-    # For local testing, uncomment the ports line below and comment out expose
-    # ports:
-    #   - "${BACKEND_PORT:-8000}:8000"
     labels:
-      # Coolify will replace these with actual values, but we set defaults
       - "traefik.enable=true"
       - "traefik.http.services.backend.loadbalancer.server.port=8000"
-    env_file:
-      - .env.production
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
@@ -53,25 +48,20 @@ services:
       start_period: 40s
 
   frontend:
-    container_name: legal-assistant-frontend
     build:
       context: .
       dockerfile: Dockerfile.frontend
       args:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     restart: unless-stopped
-    # Use expose instead of ports for Coolify - let Coolify handle port mapping
     expose:
       - "3000"
-    # For local testing, uncomment the ports line below and comment out expose
-    # ports:
-    #   - "${FRONTEND_PORT:-3000}:3000"
     labels:
-      # Coolify will replace these with actual values, but we set defaults
       - "traefik.enable=true"
       - "traefik.http.services.frontend.loadbalancer.server.port=3000"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://backend:8000}
+      - PORT=3000
     depends_on:
       backend:
         condition: service_healthy
