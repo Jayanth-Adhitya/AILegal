@@ -26,12 +26,16 @@ RUN mkdir -p /app/data/uploads \
     /app/data/policies \
     /app/data/chroma_db
 
-# Expose port
-EXPOSE 8000
+# Configure custom port (use 8080 instead of default 8000)
+ARG API_PORT=8080
+ENV API_PORT=${API_PORT}
 
-# Health check
+# Expose the custom port
+EXPOSE ${API_PORT}
+
+# Health check using custom port
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
+    CMD curl -f http://localhost:${API_PORT}/health || exit 1
 
-# Run the application
-CMD ["python", "-m", "uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the application on custom port
+CMD python -m uvicorn src.api:app --host 0.0.0.0 --port ${API_PORT}
