@@ -337,37 +337,43 @@ class AnalysisReportGenerator:
 
             for issue in result['issues']:
                 issue_para = doc.add_paragraph(style='List Bullet')
-                issue_para.add_run(f"{issue.get('issue_description', 'Unknown issue')}\n")
-                issue_para.add_run(f"  Policy: {issue.get('policy_reference', 'N/A')}\n").font.italic = True
-                issue_para.add_run(f"  Severity: {issue.get('severity', 'N/A').upper()}").font.italic = True
+                # Issues are now simple strings, not nested objects
+                if isinstance(issue, str):
+                    issue_para.add_run(issue)
+                else:
+                    # Fallback for old format
+                    issue_para.add_run(f"{issue.get('issue_description', str(issue))}\n")
+                    if issue.get('policy_reference'):
+                        issue_para.add_run(f"  Policy: {issue['policy_reference']}\n").font.italic = True
 
-        # Rejection reason (if non-compliant)
-        if not compliant and result.get('rejection_reason'):
-            doc.add_paragraph("Why This is Non-Compliant:").runs[0].bold = True
-            reason_para = doc.add_paragraph(result['rejection_reason'])
-            reason_para.paragraph_format.left_indent = Inches(0.25)
-            reason_para.runs[0].font.color.rgb = RGBColor(178, 34, 34)
+        # Recommendations (new field)
+        if result.get('recommendations'):
+            doc.add_paragraph("Recommendations:").runs[0].bold = True
+            for rec in result['recommendations']:
+                rec_para = doc.add_paragraph(style='List Bullet')
+                # Recommendations are now simple strings
+                if isinstance(rec, str):
+                    rec_para.add_run(rec)
+                else:
+                    rec_para.add_run(str(rec))
 
         # Suggested changes (if non-compliant)
-        if not compliant and result.get('redline_suggestion'):
+        if not compliant and result.get('suggested_alternative'):
             doc.add_paragraph("Recommended Alternative:").runs[0].bold = True
-            suggestion_para = doc.add_paragraph(result['redline_suggestion'])
+            suggestion_para = doc.add_paragraph(result['suggested_alternative'])
             suggestion_para.paragraph_format.left_indent = Inches(0.25)
             suggestion_para.runs[0].font.color.rgb = RGBColor(0, 100, 0)
             suggestion_para.runs[0].font.bold = True
 
         # Policy citations
-        if result.get('policy_citations'):
+        if result.get('policy_references'):
             doc.add_paragraph("Policy References:").runs[0].bold = True
-            for citation in result['policy_citations']:
-                doc.add_paragraph(f"  • {citation}", style='List Bullet')
-
-        # Review notes (if any)
-        if result.get('review_notes'):
-            doc.add_paragraph("Review Notes:").runs[0].bold = True
-            notes_para = doc.add_paragraph(result['review_notes'])
-            notes_para.paragraph_format.left_indent = Inches(0.25)
-            notes_para.runs[0].font.italic = True
+            for citation in result['policy_references']:
+                # Policy references are now simple strings
+                if isinstance(citation, str):
+                    doc.add_paragraph(f"  • {citation}", style='List Bullet')
+                else:
+                    doc.add_paragraph(f"  • {str(citation)}", style='List Bullet')
 
         # Separator
         doc.add_paragraph("─" * 80)

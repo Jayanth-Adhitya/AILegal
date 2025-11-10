@@ -17,12 +17,17 @@ class BatchContractAnalyzer:
 
     def __init__(self):
         """Initialize batch analyzer."""
+        # Use higher token limit for batch analysis (Gemini 2.0 supports up to 65k)
+        max_tokens = min(settings.max_output_tokens, 8192)  # Cap at 8k for safety
+
         self.llm = ChatGoogleGenerativeAI(
             model=settings.gemini_model,
             google_api_key=settings.google_api_key,
             temperature=settings.temperature,
-            max_output_tokens=settings.max_output_tokens
+            max_output_tokens=max_tokens
         )
+
+        logger.info(f"BatchAnalyzer initialized with max_output_tokens={max_tokens}")
 
         self.policy_retriever = SmartPolicyRetriever()
         self.rate_limiter = RateLimitHandler(
@@ -134,9 +139,25 @@ class BatchContractAnalyzer:
         # Log response details for debugging
         logger.info(f"📥 Received response from Gemini")
         logger.info(f"Response type: {type(response)}")
-        logger.info(f"Response content type: {type(response.content)}")
+        logger.info(f"Response content: {response.content}")
         logger.info(f"Response content length: {len(str(response.content))}")
-        logger.info(f"Response content preview: {str(response.content)[:500]}")
+
+        # Check for response metadata (safety ratings, finish reason, etc.)
+        if hasattr(response, 'response_metadata'):
+            logger.info(f"Response metadata: {response.response_metadata}")
+        if hasattr(response, 'additional_kwargs'):
+            logger.info(f"Additional kwargs: {response.additional_kwargs}")
+
+        # Check if response was blocked
+        if not response.content or len(str(response.content).strip()) == 0:
+            error_msg = "Gemini returned empty response. Possible causes:\n"
+            error_msg += "1. Safety filters blocked the content\n"
+            error_msg += "2. Response exceeded token limits\n"
+            error_msg += "3. JSON generation failed\n"
+            if hasattr(response, 'response_metadata'):
+                error_msg += f"Metadata: {response.response_metadata}\n"
+            logger.error(error_msg)
+            raise ValueError("Empty response from Gemini API")
 
         # Parse response
         try:
@@ -211,31 +232,39 @@ INSTRUCTIONS:
 4. Provide actionable redline suggestions for non-compliant clauses
 
 OUTPUT FORMAT:
-Return a JSON object with this EXACT structure:
+Return a JSON object with this EXACT structure (use simple strings for arrays, no nested objects):
 
 {{
   "clauses": [
     {{
       "clause_id": "clause_1",
-      "clause_type": "liability|intellectual_property|payment_terms|termination|confidentiality|warranty|dispute_resolution|delivery|data_protection|compliance|general",
-      "compliant": true|false,
-      "risk_level": "low|medium|high|critical",
-      "issues": [
-        {{
-          "issue_description": "specific problem found",
-          "policy_reference": "exact policy section violated",
-          "severity": "low|medium|high"
-        }}
-      ],
-      "redline_suggestion": "suggested alternative wording (if non-compliant)",
-      "rejection_reason": "detailed explanation for rejection (if non-compliant)",
-      "policy_citations": ["list of specific policy references"],
-      "requires_human_review": true|false,
-      "review_notes": "additional context for reviewers"
+      "clause_type": "liability",
+      "compliant": true,
+      "risk_level": "low",
+      "issues": ["issue 1", "issue 2"],
+      "recommendations": ["recommendation 1", "recommendation 2"],
+      "policy_references": ["policy 1", "policy 2"],
+      "suggested_alternative": "suggested wording if non-compliant, empty string if compliant"
     }},
-    // ... continue for ALL {len(clauses)} clauses
+    {{
+      "clause_id": "clause_2",
+      "clause_type": "payment_terms",
+      "compliant": false,
+      "risk_level": "high",
+      "issues": ["Payment terms exceed 30 days"],
+      "recommendations": ["Reduce payment terms to Net 30"],
+      "policy_references": ["Company Payment Policy Section 2.1"],
+      "suggested_alternative": "Payment due within 30 days of invoice date"
+    }}
   ]
 }}
+
+IMPORTANT RULES:
+- All array fields must contain strings only (no nested objects)
+- Return analysis for ALL {len(clauses)} clauses
+- Keep same order as input
+- Use empty arrays [] if no issues/recommendations
+- Use empty string "" for suggested_alternative if compliant
 
 IMPORTANT:
 - Analyze ALL {len(clauses)} clauses
