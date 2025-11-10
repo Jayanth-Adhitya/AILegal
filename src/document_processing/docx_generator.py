@@ -192,12 +192,13 @@ class DocxGenerator:
                     comment_text = self._format_rejection_comment(result)
                     self.add_inline_comment(paragraph_index, comment_text)
 
-                    # If there's a redline suggestion, add it
-                    if result.get("redline_suggestion"):
+                    # If there's a redline suggestion, add it (support both field names)
+                    suggested_text = result.get("suggested_alternative") or result.get("redline_suggestion")
+                    if suggested_text:
                         self.add_redline_suggestion(
                             paragraph_index=paragraph_index,
                             original_text=result.get("text", ""),
-                            suggested_text=result.get("redline_suggestion"),
+                            suggested_text=suggested_text,
                             explanation=result.get("rejection_reason", "")
                         )
 
@@ -218,11 +219,12 @@ class DocxGenerator:
             f"Reason: {result.get('rejection_reason', 'Policy violation')}",
         ]
 
-        # Add policy citations
-        if result.get("policy_citations"):
+        # Add policy citations (support both field names)
+        policy_refs = result.get("policy_references") or result.get("policy_citations") or []
+        if policy_refs:
             comment_parts.append("")
             comment_parts.append("Policy References:")
-            for citation in result["policy_citations"]:
+            for citation in policy_refs:
                 comment_parts.append(f"  - {citation}")
 
         # Add risk level
@@ -230,11 +232,12 @@ class DocxGenerator:
             comment_parts.append("")
             comment_parts.append(f"Risk Level: {result['risk_level'].upper()}")
 
-        # Add suggested action
-        if result.get("redline_suggestion"):
+        # Add suggested action (support both field names)
+        suggested_text = result.get("suggested_alternative") or result.get("redline_suggestion")
+        if suggested_text:
             comment_parts.append("")
             comment_parts.append("Suggested Alternative:")
-            comment_parts.append(result["redline_suggestion"])
+            comment_parts.append(suggested_text)
 
         return "\n".join(comment_parts)
 
