@@ -19,6 +19,7 @@ services:
       # Coolify will replace these with actual values, but we set defaults
       - "traefik.enable=true"
       - "traefik.http.services.backend.loadbalancer.server.port=${BACKEND_PORT:-8080}"
+      - "traefik.http.services.backend.loadbalancer.server.scheme=http"
     env_file:
       - .env.production
     environment:
@@ -73,6 +74,7 @@ services:
       # Coolify will replace these with actual values, but we set defaults
       - "traefik.enable=true"
       - "traefik.http.services.frontend.loadbalancer.server.port=${FRONTEND_PORT:-3001}"
+      - "traefik.http.services.frontend.loadbalancer.server.scheme=http"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://backend:8080}
       - PORT=${FRONTEND_PORT:-3001}
