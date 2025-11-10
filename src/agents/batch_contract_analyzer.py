@@ -17,8 +17,8 @@ class BatchContractAnalyzer:
 
     def __init__(self):
         """Initialize batch analyzer."""
-        # Use higher token limit for batch analysis (Gemini 2.0 supports up to 65k)
-        max_tokens = min(settings.max_output_tokens, 8192)  # Cap at 8k for safety
+        # Use configured token limit for batch analysis (Gemini 2.0 Flash supports up to 65k)
+        max_tokens = settings.max_output_tokens
 
         self.llm = ChatGoogleGenerativeAI(
             model=settings.gemini_model,

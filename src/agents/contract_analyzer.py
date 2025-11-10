@@ -86,16 +86,40 @@ class ContractAnalyzer:
             if self.batch_mode and len(clauses) > 0:
                 logger.info("🚀 Using BATCH MODE for analysis")
 
-                # Batch analysis (classify + analyze in ~2-3 API calls)
-                batch_result = self.batch_analyzer.analyze_contract_batch(
-                    contract_text=doc_data["full_text"],
-                    clauses=clauses
-                )
+                # Estimate output tokens needed (rough estimate: 300 tokens per clause)
+                estimated_output_tokens = len(clauses) * 300
+                max_safe_tokens = int(settings.max_output_tokens * 0.8)  # Use 80% of limit for safety
+
+                logger.info(f"Estimated output tokens: ~{estimated_output_tokens:,} (max safe: {max_safe_tokens:,})")
+
+                # Use chunked analysis if needed
+                if estimated_output_tokens > max_safe_tokens:
+                    chunk_size = max(10, max_safe_tokens // 300)  # Calculate optimal chunk size
+                    logger.warning(
+                        f"Contract too large for single batch ({len(clauses)} clauses). "
+                        f"Using chunked analysis with {chunk_size} clauses per chunk"
+                    )
+
+                    batch_result = self.batch_analyzer.analyze_contract_chunked(
+                        contract_text=doc_data["full_text"],
+                        clauses=clauses,
+                        chunk_size=chunk_size
+                    )
+                else:
+                    # Single batch analysis
+                    batch_result = self.batch_analyzer.analyze_contract_batch(
+                        contract_text=doc_data["full_text"],
+                        clauses=clauses
+                    )
 
                 analysis_results = batch_result["analysis_results"]
                 api_calls_used = batch_result.get("api_calls_used", 0)
+                chunks_processed = batch_result.get("chunks_processed", 1)
 
-                logger.info(f"✅ Batch analysis complete: {api_calls_used} API calls used")
+                logger.info(
+                    f"✅ Batch analysis complete: {api_calls_used} API calls, "
+                    f"{chunks_processed} chunk(s) processed"
+                )
 
             else:
                 logger.info("⚙️ Using SINGLE-CLAUSE MODE for analysis")

@@ -459,7 +459,12 @@ class AnalysisReportGenerator:
             for issue in critical_issues:
                 action = doc.add_paragraph(style='List Number')
                 action.add_run(f"Address {issue.get('clause_type', 'unknown').replace('_', ' ')} clause: ").bold = True
-                action.add_run(issue.get('rejection_reason', 'High risk identified'))
+                # Get first issue or suggested alternative as description
+                description = 'High risk identified'
+                if issue.get('issues') and len(issue['issues']) > 0:
+                    first_issue = issue['issues'][0]
+                    description = first_issue if isinstance(first_issue, str) else str(first_issue)
+                action.add_run(description)
         else:
             doc.add_paragraph("  • No critical issues identified", style='List Bullet')
 
@@ -705,22 +710,42 @@ class AnalysisReportGenerator:
             if not compliant and result.get('issues'):
                 html += '<div class="issues"><strong>Issues Identified:</strong><ul>'
                 for issue in result['issues']:
-                    html += f"<li>{issue.get('issue_description', 'Unknown')}<br>"
-                    html += f"<small>Policy: {issue.get('policy_reference', 'N/A')}</small></li>"
+                    # Issues are now simple strings
+                    if isinstance(issue, str):
+                        html += f"<li>{issue}</li>"
+                    else:
+                        # Fallback for old format
+                        html += f"<li>{issue.get('issue_description', str(issue))}<br>"
+                        html += f"<small>Policy: {issue.get('policy_reference', 'N/A')}</small></li>"
                 html += '</ul></div>'
 
-            if not compliant and result.get('redline_suggestion'):
+            # Recommendations
+            if result.get('recommendations'):
+                html += '<div class="recommendations"><strong>Recommendations:</strong><ul>'
+                for rec in result['recommendations']:
+                    if isinstance(rec, str):
+                        html += f"<li>{rec}</li>"
+                    else:
+                        html += f"<li>{str(rec)}</li>"
+                html += '</ul></div>'
+
+            # Suggested alternative (new field name)
+            if not compliant and result.get('suggested_alternative'):
                 html += f"""
             <div class="suggestion">
                 <strong>💡 Recommended Alternative:</strong><br>
-                {result['redline_suggestion']}
+                {result['suggested_alternative']}
             </div>
 """
 
-            if result.get('policy_citations'):
+            # Policy references (simple strings now)
+            if result.get('policy_references'):
                 html += '<div><strong>Policy References:</strong><br>'
-                for citation in result['policy_citations']:
-                    html += f'<span class="policy-ref">{citation}</span>'
+                for citation in result['policy_references']:
+                    if isinstance(citation, str):
+                        html += f'<span class="policy-ref">{citation}</span>'
+                    else:
+                        html += f'<span class="policy-ref">{str(citation)}</span>'
                 html += '</div>'
 
             html += '</div>'
