@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     embedding_model: str = "models/gemini-embedding-001"
 
+    # Groq API Configuration
+    groq_api_key: Optional[str] = None
+
     # ChromaDB Configuration
     chroma_db_path: str = "./data/chroma_db"
     chroma_collection_name: str = "legal_policies"

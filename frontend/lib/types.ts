@@ -97,3 +97,47 @@ export interface JobStatus {
 // Filter Types
 export type ClauseFilter = "all" | "non-compliant" | "critical";
 export type RiskFilter = "all" | "low" | "medium" | "high" | "critical";
+
+// Chat Types
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: Date;
+}
+
+export interface ChatHistory {
+  role: string;
+  content: string;
+}
+
+export interface ChatRequest {
+  message: string;
+  history: ChatHistory[];
+}
+
+export interface ChatResponse {
+  content?: string;
+  done?: boolean;
+  error?: string;
+}
+
+// Voice Types
+export interface TTSRequest {
+  text: string;
+  voice?: string;
+  model?: string;
+}
+
+export interface STTResponse {
+  status: string;
+  transcription: string;
+  language: string;
+}
+
+export interface VoicesResponse {
+  status: string;
+  language: string;
+  voices: string[];
+  default: string | null;
+}

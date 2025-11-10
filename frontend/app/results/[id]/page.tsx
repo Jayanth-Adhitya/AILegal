@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Download, FileText, AlertCircle, ArrowLeft } from "lucide-react";
 import { StatisticsDashboard } from "@/components/results/statistics-dashboard";
 import { ClauseViewer } from "@/components/results/clause-viewer";
+import ChatbotFloatingButton from "@/components/chatbot/ChatbotFloatingButton";
 import { contractApi } from "@/lib/api";
 import { JobStatus } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
@@ -192,6 +193,9 @@ export default function ResultsPage() {
           </div>
         )}
       </div>
+
+      {/* Chatbot Floating Button */}
+      {status.status === "completed" && <ChatbotFloatingButton jobId={jobId} />}
     </div>
   );
 }

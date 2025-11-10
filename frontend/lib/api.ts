@@ -172,6 +172,96 @@ export const contractApi = {
   },
 };
 
+// Chat API
+export const chatApi = {
+  // Send chat message with streaming response
+  async sendMessage(
+    jobId: string,
+    message: string,
+    history: Array<{ role: string; content: string }>
+  ): Promise<Response> {
+    const response = await fetch(`${API_URL}/api/chat/${jobId}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message,
+        history,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || "Failed to send message");
+    }
+
+    return response;
+  },
+};
+
+// Voice API
+export const voiceApi = {
+  // Text to Speech
+  async textToSpeech(
+    text: string,
+    voice?: string,
+    model: string = "playai-tts"
+  ): Promise<Blob> {
+    try {
+      const response = await api.post(
+        "/api/voice/synthesize",
+        {
+          text,
+          voice,
+          model,
+        },
+        {
+          responseType: "blob",
+        }
+      );
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Speech to Text
+  async speechToText(formData: FormData): Promise<{
+    status: string;
+    transcription: string;
+    language: string;
+  }> {
+    try {
+      const response = await api.post("/api/voice/transcribe", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Get available voices
+  async getVoices(language: string = "english"): Promise<{
+    status: string;
+    language: string;
+    voices: string[];
+    default: string | null;
+  }> {
+    try {
+      const response = await api.get("/api/voice/voices", {
+        params: { language },
+      });
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+};
+
 // Health check
 export async function checkApiHealth(): Promise<boolean> {
   try {

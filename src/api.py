@@ -3,18 +3,26 @@
 import logging
 import os
 import uuid
+import io
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import asyncio
+import json
+from typing import AsyncGenerator
 
 from .core.config import settings
 from .agents.contract_analyzer import ContractAnalyzer
 from .vector_store.embeddings import PolicyEmbeddings
+from .vector_store.retriever import PolicyRetriever
+from .services.groq_service import groq_service
+from .core.prompts import CHATBOT_PROMPT, CHATBOT_POLICY_SEARCH_PROMPT
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 # Configure logging
 logging.basicConfig(
@@ -54,6 +62,19 @@ class AnalysisResponse(BaseModel):
     job_id: str
     status: str
     message: str
+
+
+class ChatRequest(BaseModel):
+    """Request model for chat messages."""
+    message: str
+    history: Optional[list] = []
+
+
+class TTSRequest(BaseModel):
+    """Request model for text-to-speech."""
+    text: str
+    voice: Optional[str] = None
+    model: Optional[str] = "playai-tts"
 
 
 @app.get("/")
@@ -675,6 +696,383 @@ async def delete_analysis_job(job_id: str):
     return {
         "status": "success",
         "message": f"Job {job_id} deleted successfully"
+    }
+
+
+# ===== Chatbot and Voice Endpoints =====
+
+@app.post("/api/chat/{job_id}")
+async def chat_with_assistant(job_id: str, request: ChatRequest):
+    """
+    Chat endpoint with Server-Sent Events streaming.
+    Provides COMPLETE analysis data to LLM for accurate responses.
+
+    Args:
+        job_id: Job ID for the contract analysis
+        request: Chat request with message and history
+
+    Returns:
+        SSE stream with assistant response
+    """
+    # Check if job exists
+    if job_id not in analysis_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = analysis_jobs[job_id]
+
+    # Check if analysis is complete
+    if job.get("status") != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Analysis not yet completed. Please wait for analysis to finish."
+        )
+
+    # Get the COMPLETE result object - check both "result" and "results" keys
+    result = job.get("result") or job.get("results", {})
+
+    # DEBUG: Log what we actually have
+    logger.info(f"DEBUG - Job keys: {list(job.keys())}")
+    logger.info(f"DEBUG - Job status: {job.get('status')}")
+    logger.info(f"DEBUG - Has 'result': {'result' in job}, Has 'results': {'results' in job}")
+    logger.info(f"DEBUG - Result is empty: {not result}")
+
+    if result:
+        logger.info(f"DEBUG - Result keys: {list(result.keys())}")
+        if "analysis_results" in result:
+            logger.info(f"DEBUG - analysis_results length: {len(result['analysis_results'])}")
+            if result['analysis_results']:
+                logger.info(f"DEBUG - First clause keys: {list(result['analysis_results'][0].keys())}")
+
+    # If result is still empty, check if data is directly in job
+    if not result or not result.get("analysis_results"):
+        logger.warning(f"Result is empty or missing analysis_results. Checking job directly...")
+        # Try to use the job data directly
+        if "analysis_results" in job:
+            result = job
+            logger.info(f"Using job data directly - found {len(job.get('analysis_results', []))} results")
+
+    # Initialize LLM with slightly higher temperature for more natural conversation
+    llm = ChatGoogleGenerativeAI(
+        model=settings.gemini_model,
+        google_api_key=settings.google_api_key,
+        temperature=0.5,  # Slightly higher for more conversational responses
+        max_output_tokens=1024  # Shorter for brief responses
+    )
+
+    # Create comprehensive system prompt with ALL analysis data
+    system_prompt = f"""You are a friendly legal assistant helping someone understand their contract review. Speak naturally and conversationally, as if explaining to a colleague.
+
+IMPORTANT: Only use information from the data below. Keep responses brief and suitable for speech.
+
+====================
+CONTRACT ANALYSIS DATA
+====================
+
+{json.dumps(result, indent=2)}
+
+====================
+END OF DATA
+====================
+
+CONVERSATION STYLE:
+
+1. Be conversational and human-like:
+   - Use natural language, not robotic lists
+   - Keep sentences short and clear
+   - Speak as if you're having a conversation
+   - Avoid long technical explanations
+
+2. For non-compliant clauses:
+   - Start with the count: "I found 5 issues..." or "There are 3 problematic clauses..."
+   - Briefly mention the main problems
+   - Focus on the most important ones first
+   - Don't quote entire clauses - just key phrases
+
+3. Keep it brief:
+   - Aim for 2-3 sentences for simple questions
+   - Maximum 4-5 sentences for complex questions
+   - If there's a lot to cover, ask if they want more details
+
+4. Be helpful:
+   - If no issues: "Good news! All clauses are compliant."
+   - If many issues: "There are several concerns. The main ones are..."
+   - Offer to elaborate: "Would you like me to explain any of these?"
+
+5. Natural speech patterns:
+   - Use contractions (it's, there's, don't)
+   - Add transitions (actually, basically, essentially)
+   - Sound encouraging when appropriate
+
+Remember: You're having a conversation, not reading a report. Be helpful, clear, and concise."""
+
+    # Log for debugging
+    logger.info(f"Chat for job {job_id}")
+    logger.info(f"Result keys: {list(result.keys())}")
+    logger.info(f"System prompt size: {len(system_prompt)} characters")
+
+    if "analysis_results" in result:
+        analysis_results = result["analysis_results"]
+        non_compliant = sum(1 for c in analysis_results
+                          if c.get("compliance_status") == "Non-Compliant" or not c.get("compliant", True))
+        logger.info(f"Analysis has {len(analysis_results)} clauses, {non_compliant} non-compliant")
+
+    # Build message history
+    messages = [
+        {"role": "system", "content": system_prompt}
+    ]
+
+    # Add chat history (limit to prevent token overflow)
+    for msg in request.history[-5:]:  # Keep last 5 messages
+        messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+
+    # Add current message
+    messages.append({"role": "user", "content": request.message})
+
+    async def generate_response() -> AsyncGenerator[str, None]:
+        """Generate streaming response."""
+        try:
+            # Get streaming response from LLM
+            response = llm.stream(messages)
+
+            for chunk in response:
+                if chunk.content:
+                    # Format as SSE
+                    yield f"data: {json.dumps({'content': chunk.content})}\n\n"
+                    await asyncio.sleep(0.01)  # Small delay to prevent overwhelming client
+
+            # Send completion signal
+            yield f"data: {json.dumps({'done': True})}\n\n"
+
+        except Exception as e:
+            logger.error(f"Error in chat streaming: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate_response(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable buffering for nginx
+        }
+    )
+
+
+@app.post("/api/voice/synthesize")
+async def text_to_speech(request: TTSRequest):
+    """
+    Convert text to speech using Groq PlayAI TTS.
+
+    Args:
+        request: TTS request with text and voice options
+
+    Returns:
+        WAV audio stream
+    """
+    try:
+        # Generate speech
+        audio_bytes = groq_service.text_to_speech(
+            text=request.text,
+            voice=request.voice,
+            model=request.model
+        )
+
+        # Return audio stream
+        return StreamingResponse(
+            io.BytesIO(audio_bytes),
+            media_type="audio/wav",
+            headers={
+                "Content-Disposition": "inline; filename=speech.wav",
+                "Cache-Control": "no-cache"
+            }
+        )
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"TTS error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/voice/transcribe")
+async def speech_to_text(
+    file: UploadFile = File(...),
+    language: Optional[str] = Form("en"),
+    model: Optional[str] = Form("whisper-large-v3-turbo")
+):
+    """
+    Transcribe audio to text using Groq Whisper.
+
+    Args:
+        file: Audio file to transcribe
+        language: Language code (ISO-639-1)
+        model: Whisper model to use
+
+    Returns:
+        Transcription result
+    """
+    # Validate file size
+    if file.size > 25 * 1024 * 1024:  # 25MB limit
+        raise HTTPException(
+            status_code=400,
+            detail="File size exceeds 25MB limit"
+        )
+
+    try:
+        # Read file content
+        audio_content = await file.read()
+
+        # Transcribe audio
+        result = groq_service.speech_to_text(
+            audio_file=io.BytesIO(audio_content),
+            filename=file.filename,
+            model=model,
+            language=language,
+            response_format="json"
+        )
+
+        return {
+            "status": "success",
+            "transcription": result.get("text", ""),
+            "language": result.get("language", language)
+        }
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"STT error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/debug/{job_id}")
+async def debug_job(job_id: str):
+    """
+    Debug endpoint to see complete job structure.
+    """
+    if job_id not in analysis_jobs:
+        return {
+            "error": "Job not found",
+            "available_jobs": list(analysis_jobs.keys())
+        }
+
+    job = analysis_jobs[job_id]
+    # Check both "result" and "results" keys
+    result = job.get("result") or job.get("results", {})
+
+    # Create a summary of what's in the job
+    debug_info = {
+        "job_id": job_id,
+        "job_status": job.get("status"),
+        "job_keys": list(job.keys()),
+        "has_result": bool(job.get("result")),
+        "has_results": bool(job.get("results")),
+        "using_key": "results" if job.get("results") else "result" if job.get("result") else "none",
+        "result_keys": list(result.keys()) if result else [],
+        "analysis_results_count": len(result.get("analysis_results", [])) if result else 0
+    }
+
+    # If there are analysis results, show sample
+    if result and "analysis_results" in result and result["analysis_results"]:
+        first_clause = result["analysis_results"][0]
+        debug_info["first_clause_keys"] = list(first_clause.keys())
+        debug_info["first_clause_compliance"] = {
+            "compliance_status": first_clause.get("compliance_status"),
+            "compliant": first_clause.get("compliant")
+        }
+
+        # Count non-compliant
+        non_compliant = 0
+        for clause in result["analysis_results"]:
+            if clause.get("compliance_status") == "Non-Compliant" or not clause.get("compliant", True):
+                non_compliant += 1
+        debug_info["non_compliant_count"] = non_compliant
+
+    return debug_info
+
+
+@app.get("/api/chat/{job_id}/context")
+async def get_chat_context(job_id: str):
+    """
+    Debug endpoint to view the chat context for a job.
+
+    Args:
+        job_id: Job ID for the contract analysis
+
+    Returns:
+        The context that would be provided to the chatbot
+    """
+    # Check if job exists
+    if job_id not in analysis_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = analysis_jobs[job_id]
+
+    # Check if analysis is complete
+    if job.get("status") != "completed":
+        return {
+            "status": "incomplete",
+            "message": "Analysis not yet completed"
+        }
+
+    # Get analysis results - check both "result" and "results" keys
+    result = job.get("result") or job.get("results", {})
+    analysis_results = result.get("analysis_results", [])
+    summary = result.get("summary", {})
+
+    # Format analysis results for context
+    non_compliant_clauses = []
+
+    for i, clause in enumerate(analysis_results):
+        # Determine compliance status from available fields
+        compliance_status = clause.get("compliance_status", "")
+        if not compliance_status:
+            compliant_bool = clause.get("compliant", True)
+            compliance_status = "Compliant" if compliant_bool else "Non-Compliant"
+
+        if compliance_status == "Non-Compliant":
+            non_compliant_clauses.append({
+                "clause_number": clause.get("clause_number", i + 1),
+                "clause_type": clause.get("clause_type", ""),
+                "compliance_status": compliance_status,
+                "risk_level": clause.get("risk_level", "Medium")
+            })
+
+    return {
+        "job_id": job_id,
+        "contract_name": result.get("contract_name", "Unknown"),
+        "total_clauses": len(analysis_results),
+        "compliant_clauses": len(analysis_results) - len(non_compliant_clauses),
+        "non_compliant_clauses": len(non_compliant_clauses),
+        "compliance_rate": round(((len(analysis_results) - len(non_compliant_clauses)) / max(len(analysis_results), 1)) * 100, 1),
+        "non_compliant_list": non_compliant_clauses,
+        "summary": summary
+    }
+
+
+@app.get("/api/voice/voices")
+async def get_available_voices(language: str = "english"):
+    """
+    Get list of available TTS voices.
+
+    Args:
+        language: Language for voices ("english" or "arabic")
+
+    Returns:
+        List of available voices
+    """
+    if not groq_service.is_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Voice features are not available. Please configure GROQ_API_KEY."
+        )
+
+    voices = groq_service.get_available_voices(language)
+
+    return {
+        "status": "success",
+        "language": language,
+        "voices": voices,
+        "default": voices[0] if voices else None
     }
 
 
