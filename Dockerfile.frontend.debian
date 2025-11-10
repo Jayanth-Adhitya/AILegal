@@ -1,14 +1,8 @@
-# Frontend Dockerfile for AI Legal Assistant
-FROM node:18-alpine AS base
+# Frontend Dockerfile for AI Legal Assistant (Debian-based - more stable)
+FROM node:18-slim AS base
 
 # Install dependencies only when needed
 FROM base AS deps
-# Fix Alpine repository access issues and add retry logic
-RUN echo "https://dl-cdn.alpinelinux.org/alpine/v3.18/main" > /etc/apk/repositories && \
-    echo "https://dl-cdn.alpinelinux.org/alpine/v3.18/community" >> /etc/apk/repositories && \
-    apk update && \
-    apk add --no-cache libc6-compat || \
-    (sleep 5 && apk add --no-cache libc6-compat)
 WORKDIR /app
 
 # Copy package files
@@ -60,8 +54,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # Create a non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN groupadd --system --gid 1001 nodejs
+RUN useradd --system --uid 1001 nextjs
 
 # Copy built application
 COPY --from=builder /app/public ./public
