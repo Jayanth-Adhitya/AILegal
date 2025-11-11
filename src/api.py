@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -21,8 +21,15 @@ from .agents.contract_analyzer import ContractAnalyzer
 from .vector_store.embeddings import PolicyEmbeddings
 from .vector_store.retriever import PolicyRetriever
 from .services.groq_service import groq_service
+from .services.auth_service import AuthService
 from .core.prompts import CHATBOT_PROMPT, CHATBOT_POLICY_SEARCH_PROMPT
 from langchain_google_genai import ChatGoogleGenerativeAI
+from .database import init_db, get_db, User as DBUser, Session as DBSession, AnalysisJob as DBAnalysisJob, Negotiation, NegotiationMessage
+from sqlalchemy.orm import Session as DBSessionType
+from fastapi import Depends, WebSocket, WebSocketDisconnect
+from .services.negotiation_service import NegotiationService
+from .services.message_service import MessageService
+from .services.websocket_manager import ws_manager
 
 # Configure logging
 logging.basicConfig(
@@ -38,16 +45,68 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Add CORS middleware
+# Add CORS middleware - must specify exact origins when credentials=True
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",  # Next.js dev server
+        "http://localhost:3001",  # Alternative port
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# In-memory storage for analysis jobs (use database in production)
+
+# Startup event to initialize database
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database on application startup."""
+    logger.info("🚀 Starting AI Legal Assistant API...")
+    init_db()
+    logger.info("✅ Database initialized and ready")
+
+
+# Helper function to get AuthService with database session
+def get_auth_service(db: DBSessionType = Depends(get_db)) -> AuthService:
+    """Get AuthService instance with database session."""
+    return AuthService(db)
+
+
+# Helper function to get NegotiationService with database session
+def get_negotiation_service(db: DBSessionType = Depends(get_db)) -> NegotiationService:
+    """Get NegotiationService instance with database session."""
+    return NegotiationService(db)
+
+
+# Helper function to get MessageService with database session
+def get_message_service(db: DBSessionType = Depends(get_db)) -> MessageService:
+    """Get MessageService instance with database session."""
+    return MessageService(db)
+
+
+# Helper dependency to get current authenticated user (requires authentication)
+def require_auth(
+    request: Request,
+    auth_service: AuthService = Depends(get_auth_service)
+) -> DBUser:
+    """Get current authenticated user or raise 401."""
+    session_id = request.cookies.get("session_id")
+
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user = auth_service.get_user_by_session(session_id)
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+    return user
+
+
+# In-memory storage for backwards compatibility (will be fully migrated to database)
 analysis_jobs: Dict[str, Dict[str, Any]] = {}
 
 
@@ -75,6 +134,56 @@ class TTSRequest(BaseModel):
     text: str
     voice: Optional[str] = None
     model: Optional[str] = "playai-tts"
+
+
+class RegisterRequest(BaseModel):
+    """Request model for user registration."""
+    email: str
+    password: str
+    company_name: str
+    company_id: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    """Request model for user login."""
+    email: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    """Response model for authentication."""
+    success: bool
+    message: str
+    user: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+class CreateNegotiationRequest(BaseModel):
+    """Request model for creating a negotiation."""
+    receiver_email: str
+    contract_name: str
+    contract_job_id: Optional[str] = None
+
+
+class RejectNegotiationRequest(BaseModel):
+    """Request model for rejecting a negotiation."""
+    reason: Optional[str] = None
+
+
+class CancelNegotiationRequest(BaseModel):
+    """Request model for cancelling a negotiation."""
+    reason: Optional[str] = None
+
+
+class SendMessageRequest(BaseModel):
+    """Request model for sending a message."""
+    content: str
+    message_type: str = "text"
+
+
+class MarkMessagesReadRequest(BaseModel):
+    """Request model for marking messages as read."""
+    message_ids: list[str]
 
 
 @app.get("/")
@@ -106,10 +215,291 @@ async def health_check():
     }
 
 
+# Authentication Endpoints
+
+@app.post("/api/auth/register", response_model=AuthResponse)
+async def register(
+    request: RegisterRequest,
+    response: Response,
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Register a new user."""
+    try:
+        result = auth_service.register_user(
+            email=request.email,
+            password=request.password,
+            company_name=request.company_name,
+            company_id=request.company_id
+        )
+
+        if result["success"]:
+            # Set session cookie (HttpOnly for security)
+            response.set_cookie(
+                key="session_id",
+                value=result["session_id"],
+                httponly=True,
+                samesite="lax",
+                max_age=7 * 24 * 60 * 60  # 7 days
+            )
+
+            # Set WebSocket token cookie (non-HttpOnly so JS can read it)
+            response.set_cookie(
+                key="ws_token",
+                value=result["session_id"],
+                httponly=False,  # Allow JS access for WebSocket
+                samesite="lax",
+                max_age=7 * 24 * 60 * 60  # 7 days
+            )
+
+            return AuthResponse(
+                success=True,
+                message="Registration successful",
+                user=result["user"]
+            )
+        else:
+            return AuthResponse(
+                success=False,
+                message="Registration failed",
+                error=result.get("error", "Unknown error")
+            )
+
+    except Exception as e:
+        logger.error(f"Registration error: {e}")
+        raise HTTPException(status_code=500, detail="Registration failed")
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+async def login(
+    request: LoginRequest,
+    response: Response,
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Login user."""
+    try:
+        result = auth_service.login(
+            email=request.email,
+            password=request.password
+        )
+
+        if result["success"]:
+            # Set session cookie (HttpOnly for security)
+            response.set_cookie(
+                key="session_id",
+                value=result["session_id"],
+                httponly=True,
+                samesite="lax",
+                max_age=7 * 24 * 60 * 60  # 7 days
+            )
+
+            # Set WebSocket token cookie (non-HttpOnly so JS can read it)
+            response.set_cookie(
+                key="ws_token",
+                value=result["session_id"],
+                httponly=False,  # Allow JS access for WebSocket
+                samesite="lax",
+                max_age=7 * 24 * 60 * 60  # 7 days
+            )
+
+            return AuthResponse(
+                success=True,
+                message="Login successful",
+                user=result["user"]
+            )
+        else:
+            return AuthResponse(
+                success=False,
+                message="Login failed",
+                error=result.get("error", "Invalid credentials")
+            )
+
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        raise HTTPException(status_code=500, detail="Login failed")
+
+
+@app.post("/api/auth/logout")
+async def logout(
+    request: Request,
+    response: Response,
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Logout user."""
+    try:
+        session_id = request.cookies.get("session_id")
+
+        if session_id:
+            auth_service.logout(session_id)
+
+        # Clear both cookies
+        response.delete_cookie(key="session_id")
+        response.delete_cookie(key="ws_token")
+
+        return {"success": True, "message": "Logged out successfully"}
+
+    except Exception as e:
+        logger.error(f"Logout error: {e}")
+        return {"success": False, "message": "Logout failed"}
+
+
+@app.get("/api/auth/me")
+async def get_current_user(
+    request: Request,
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Get current user info."""
+    try:
+        session_id = request.cookies.get("session_id")
+
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+
+        user = auth_service.get_user_by_session(session_id)
+
+        if not user:
+            raise HTTPException(status_code=401, detail="Session invalid or expired")
+
+        return {
+            "success": True,
+            "user": user.to_dict()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get user error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get user info")
+
+
+# Policy Management Endpoints
+
+@app.post("/api/policies/upload")
+async def upload_policy(
+    file: UploadFile = File(...),
+    user: DBUser = Depends(require_auth)
+):
+    """
+    Upload a policy document to user's collection.
+
+    Args:
+        file: Policy document (PDF, TXT, or MD)
+
+    Returns:
+        Upload confirmation with chunk count
+    """
+    try:
+
+        # Validate file type
+        allowed_extensions = ['.pdf', '.txt', '.md']
+        file_ext = Path(file.filename).suffix.lower()
+        if file_ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type. Allowed: {', '.join(allowed_extensions)}"
+            )
+
+        # Save uploaded file temporarily
+        temp_dir = Path(settings.upload_dir) / "policies" / user.company_id
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        file_path = temp_dir / file.filename
+        content = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        # Ingest into user's collection
+        from .vector_store.embeddings import PolicyEmbeddings
+        embeddings = PolicyEmbeddings()
+        chunk_count = embeddings.ingest_single_file(file_path, company_id=user.company_id)
+
+        logger.info(f"Policy uploaded by {user.email}: {file.filename} ({chunk_count} chunks)")
+
+        return {
+            "success": True,
+            "message": "Policy uploaded successfully",
+            "filename": file.filename,
+            "chunk_count": chunk_count,
+            "company_id": user.company_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Policy upload error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload policy: {str(e)}")
+
+
+@app.get("/api/policies")
+async def list_policies(user: DBUser = Depends(require_auth)):
+    """
+    List user's uploaded policies.
+
+    Returns:
+        List of policies with metadata
+    """
+    try:
+
+        # Get user's collection
+        from .vector_store.embeddings import PolicyEmbeddings
+        embeddings = PolicyEmbeddings()
+        collection = embeddings.get_or_create_user_collection(user.company_id)
+
+        # Get all documents from collection
+        count = collection.count()
+
+        # Get unique file names from metadata
+        if count > 0:
+            results = collection.get(include=["metadatas"])
+            metadatas = results.get("metadatas", [])
+
+            # Group by filename
+            files = {}
+            for metadata in metadatas:
+                filename = metadata.get("filename", "unknown")
+                if filename not in files:
+                    # Generate a unique ID for this policy file
+                    policy_id = hash(f"{user.company_id}_{filename}")
+
+                    # Get file size if file_path exists
+                    file_size = None
+                    file_path = metadata.get("file_path", "")
+                    if file_path and Path(file_path).exists():
+                        file_size = Path(file_path).stat().st_size
+
+                    files[filename] = {
+                        "id": str(policy_id),
+                        "name": filename,
+                        "type": metadata.get("policy_type", "unknown"),
+                        "version": metadata.get("version", "v1.0"),
+                        "file_path": file_path,
+                        "uploaded_at": metadata.get("uploaded_at", ""),
+                        "file_size": file_size,
+                        "chunk_count": 0
+                    }
+                files[filename]["chunk_count"] += 1
+
+            policy_list = list(files.values())
+        else:
+            policy_list = []
+
+        return {
+            "success": True,
+            "policies": policy_list,
+            "total_chunks": count,
+            "company_id": user.company_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"List policies error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list policies")
+
+
 @app.post("/api/contracts/upload", response_model=AnalysisResponse)
 async def upload_contract(
     file: UploadFile = File(...),
-    background_tasks: BackgroundTasks = BackgroundTasks()
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    user: DBUser = Depends(require_auth)
 ):
     """
     Upload a contract for analysis.
@@ -121,6 +511,7 @@ async def upload_contract(
         Job ID for tracking the analysis
     """
     try:
+
         # Validate file type
         if not file.filename.endswith(('.docx', '.pdf')):
             raise HTTPException(
@@ -144,8 +535,8 @@ async def upload_contract(
         with open(upload_path, "wb") as f:
             f.write(content)
 
-        # Initialize job
-        analysis_jobs[job_id] = {
+        # Initialize job with user_id if logged in
+        job_data = {
             "job_id": job_id,
             "status": "uploaded",
             "filename": file.filename,
@@ -153,6 +544,12 @@ async def upload_contract(
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat()
         }
+
+        # Add user info (now always required)
+        job_data["user_id"] = user.id
+        job_data["company_name"] = user.company_name
+
+        analysis_jobs[job_id] = job_data
 
         logger.info(f"Contract uploaded: {job_id} - {file.filename}")
 
@@ -167,6 +564,53 @@ async def upload_contract(
     except Exception as e:
         logger.error(f"Error uploading contract: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/contracts")
+async def list_contracts(request: Request):
+    """
+    List contracts for the current user or all if anonymous.
+    """
+    try:
+        # Get current user from session
+        session_id = request.cookies.get("session_id")
+        current_user = auth_service.get_user_by_session(session_id) if session_id else None
+
+        # Filter contracts based on user
+        contracts = []
+        for job_id, job in analysis_jobs.items():
+            # If user is logged in, only show their contracts
+            if current_user:
+                if job.get("user_id") == current_user.id:
+                    contracts.append({
+                        "job_id": job["job_id"],
+                        "filename": job["filename"],
+                        "status": job.get("status", "unknown"),
+                        "created_at": job.get("created_at"),
+                        "company_name": job.get("company_name", current_user.company_name)
+                    })
+            else:
+                # For anonymous users, show all or recent contracts (demo mode)
+                contracts.append({
+                    "job_id": job["job_id"],
+                    "filename": job["filename"],
+                    "status": job.get("status", "unknown"),
+                    "created_at": job.get("created_at"),
+                    "company_name": job.get("company_name", "Anonymous")
+                })
+
+        # Sort by created_at descending (newest first)
+        contracts.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+        return {
+            "success": True,
+            "contracts": contracts,
+            "user": current_user.to_dict() if current_user else None
+        }
+
+    except Exception as e:
+        logger.error(f"Error listing contracts: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list contracts")
 
 
 @app.post("/api/contracts/{job_id}/analyze")
@@ -225,8 +669,21 @@ def run_contract_analysis(job_id: str, contract_path: str):
     try:
         logger.info(f"Running analysis for job: {job_id}")
 
-        # Initialize analyzer
-        analyzer = ContractAnalyzer()
+        # Get job data to extract company_id if available
+        job = analysis_jobs.get(job_id)
+        company_id = None
+
+        if job and job.get("user_id"):
+            # Find user by user_id to get company_id
+            user_id = job["user_id"]
+            for user in auth_service.users.values():
+                if user.id == user_id:
+                    company_id = user.company_id
+                    logger.info(f"Using company-specific policies for company: {company_id}")
+                    break
+
+        # Initialize analyzer with company_id for user-specific policy retrieval
+        analyzer = ContractAnalyzer(company_id=company_id)
 
         # Define output path
         output_path = Path(settings.output_dir) / f"{job_id}_reviewed.docx"
@@ -264,7 +721,7 @@ def run_contract_analysis(job_id: str, contract_path: str):
 
 
 @app.get("/api/contracts/{job_id}/status")
-async def get_analysis_status(job_id: str):
+async def get_analysis_status(request: Request, job_id: str):
     """
     Get the status of a contract analysis job.
 
@@ -278,6 +735,15 @@ async def get_analysis_status(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
 
     job = analysis_jobs[job_id]
+
+    # Check ownership if user is authenticated
+    session_id = request.cookies.get("session_id")
+    current_user = auth_service.get_user_by_session(session_id) if session_id else None
+
+    if current_user and job.get("user_id"):
+        # If both user and job have user_id, check ownership
+        if job["user_id"] != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied - not your contract")
 
     # Map backend status to frontend status
     status_map = {
@@ -702,14 +1168,14 @@ async def delete_analysis_job(job_id: str):
 # ===== Chatbot and Voice Endpoints =====
 
 @app.post("/api/chat/{job_id}")
-async def chat_with_assistant(job_id: str, request: ChatRequest):
+async def chat_with_assistant(job_id: str, chat_request: ChatRequest, request: Request):
     """
     Chat endpoint with Server-Sent Events streaming.
     Provides COMPLETE analysis data to LLM for accurate responses.
 
     Args:
         job_id: Job ID for the contract analysis
-        request: Chat request with message and history
+        chat_request: Chat request with message and history
 
     Returns:
         SSE stream with assistant response
@@ -719,6 +1185,15 @@ async def chat_with_assistant(job_id: str, request: ChatRequest):
         raise HTTPException(status_code=404, detail="Job not found")
 
     job = analysis_jobs[job_id]
+
+    # Check ownership if user is authenticated
+    session_id = request.cookies.get("session_id")
+    current_user = auth_service.get_user_by_session(session_id) if session_id else None
+
+    if current_user and job.get("user_id"):
+        # If both user and job have user_id, check ownership
+        if job["user_id"] != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied - not your contract")
 
     # Check if analysis is complete
     if job.get("status") != "completed":
@@ -822,11 +1297,11 @@ Remember: You're having a conversation, not reading a report. Be helpful, clear,
     ]
 
     # Add chat history (limit to prevent token overflow)
-    for msg in request.history[-5:]:  # Keep last 5 messages
+    for msg in chat_request.history[-5:]:  # Keep last 5 messages
         messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
 
     # Add current message
-    messages.append({"role": "user", "content": request.message})
+    messages.append({"role": "user", "content": chat_request.message})
 
     async def generate_response() -> AsyncGenerator[str, None]:
         """Generate streaming response."""
@@ -1074,6 +1549,510 @@ async def get_available_voices(language: str = "english"):
         "voices": voices,
         "default": voices[0] if voices else None
     }
+
+
+# ===== Negotiation Endpoints =====
+
+@app.post("/api/negotiations")
+async def create_negotiation(
+    request: CreateNegotiationRequest,
+    user: DBUser = Depends(require_auth),
+    negotiation_service: NegotiationService = Depends(get_negotiation_service)
+):
+    """
+    Create a new negotiation request.
+
+    Args:
+        request: Negotiation creation request
+        user: Authenticated user (initiator)
+        negotiation_service: Negotiation service instance
+
+    Returns:
+        Created negotiation data or error
+    """
+    result = negotiation_service.create_negotiation(
+        initiator_id=user.id,
+        receiver_email=request.receiver_email,
+        contract_name=request.contract_name,
+        contract_job_id=request.contract_job_id
+    )
+
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return result["negotiation"]
+
+
+@app.get("/api/negotiations")
+async def list_negotiations(
+    status: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+    user: DBUser = Depends(require_auth),
+    negotiation_service: NegotiationService = Depends(get_negotiation_service)
+):
+    """
+    List user's negotiations with optional filtering.
+
+    Args:
+        status: Optional status filter (pending, active, completed, rejected, cancelled)
+        limit: Maximum number of results (default: 20)
+        offset: Number of results to skip (default: 0)
+        user: Authenticated user
+        negotiation_service: Negotiation service instance
+
+    Returns:
+        List of negotiations with pagination metadata
+    """
+    result = negotiation_service.list_user_negotiations(
+        user_id=user.id,
+        status_filter=status,
+        limit=limit,
+        offset=offset
+    )
+
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result["error"])
+
+    # Add unread counts for each negotiation
+    for negotiation in result["negotiations"]:
+        unread_count = negotiation_service.get_unread_count(negotiation["id"], user.id)
+        negotiation["unread_count"] = unread_count
+
+    return result
+
+
+@app.get("/api/negotiations/{negotiation_id}")
+async def get_negotiation(
+    negotiation_id: str,
+    user: DBUser = Depends(require_auth),
+    negotiation_service: NegotiationService = Depends(get_negotiation_service)
+):
+    """
+    Get negotiation details.
+
+    Args:
+        negotiation_id: ID of the negotiation
+        user: Authenticated user
+        negotiation_service: Negotiation service instance
+
+    Returns:
+        Negotiation data
+    """
+    # Check access
+    if not negotiation_service.can_user_access(negotiation_id, user.id):
+        raise HTTPException(status_code=403, detail="You do not have access to this negotiation")
+
+    negotiation = negotiation_service.get_negotiation(negotiation_id)
+    if not negotiation:
+        raise HTTPException(status_code=404, detail="Negotiation not found")
+
+    # Add unread count
+    result = negotiation.to_dict()
+    result["unread_count"] = negotiation_service.get_unread_count(negotiation_id, user.id)
+
+    return result
+
+
+@app.patch("/api/negotiations/{negotiation_id}/accept")
+async def accept_negotiation(
+    negotiation_id: str,
+    user: DBUser = Depends(require_auth),
+    negotiation_service: NegotiationService = Depends(get_negotiation_service)
+):
+    """
+    Accept a pending negotiation request.
+
+    Args:
+        negotiation_id: ID of the negotiation
+        user: Authenticated user (must be receiver)
+        negotiation_service: Negotiation service instance
+
+    Returns:
+        Updated negotiation data
+    """
+    result = negotiation_service.accept_negotiation(negotiation_id, user.id)
+
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return result["negotiation"]
+
+
+@app.patch("/api/negotiations/{negotiation_id}/reject")
+async def reject_negotiation(
+    negotiation_id: str,
+    request: RejectNegotiationRequest,
+    user: DBUser = Depends(require_auth),
+    negotiation_service: NegotiationService = Depends(get_negotiation_service)
+):
+    """
+    Reject a pending negotiation request.
+
+    Args:
+        negotiation_id: ID of the negotiation
+        request: Rejection request with optional reason
+        user: Authenticated user (must be receiver)
+        negotiation_service: Negotiation service instance
+
+    Returns:
+        Success status
+    """
+    result = negotiation_service.reject_negotiation(negotiation_id, user.id, request.reason)
+
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return {"status": "success", "message": "Negotiation rejected"}
+
+
+@app.patch("/api/negotiations/{negotiation_id}/complete")
+async def complete_negotiation(
+    negotiation_id: str,
+    user: DBUser = Depends(require_auth),
+    negotiation_service: NegotiationService = Depends(get_negotiation_service)
+):
+    """
+    Mark a negotiation as completed.
+
+    Args:
+        negotiation_id: ID of the negotiation
+        user: Authenticated user (must be participant)
+        negotiation_service: Negotiation service instance
+
+    Returns:
+        Success status
+    """
+    result = negotiation_service.complete_negotiation(negotiation_id, user.id)
+
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return {"status": "success", "message": "Negotiation marked as completed"}
+
+
+@app.delete("/api/negotiations/{negotiation_id}")
+async def cancel_negotiation(
+    negotiation_id: str,
+    request: CancelNegotiationRequest,
+    user: DBUser = Depends(require_auth),
+    negotiation_service: NegotiationService = Depends(get_negotiation_service)
+):
+    """
+    Cancel a negotiation.
+
+    Args:
+        negotiation_id: ID of the negotiation
+        request: Cancellation request with optional reason
+        user: Authenticated user (must be participant)
+        negotiation_service: Negotiation service instance
+
+    Returns:
+        Success status
+    """
+    result = negotiation_service.cancel_negotiation(negotiation_id, user.id, request.reason)
+
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return {"status": "success", "message": "Negotiation cancelled"}
+
+
+# ===== Message Endpoints =====
+
+@app.post("/api/negotiations/{negotiation_id}/messages")
+async def send_message(
+    negotiation_id: str,
+    request: SendMessageRequest,
+    user: DBUser = Depends(require_auth),
+    negotiation_service: NegotiationService = Depends(get_negotiation_service),
+    message_service: MessageService = Depends(get_message_service)
+):
+    """
+    Send a message in a negotiation (HTTP fallback for when WebSocket is unavailable).
+
+    Args:
+        negotiation_id: ID of the negotiation
+        request: Message content
+        user: Authenticated user
+        negotiation_service: Negotiation service instance
+        message_service: Message service instance
+
+    Returns:
+        Created message data
+    """
+    # Check access
+    if not negotiation_service.can_user_access(negotiation_id, user.id):
+        raise HTTPException(status_code=403, detail="You do not have access to this negotiation")
+
+    # Send message
+    result = message_service.send_message(
+        negotiation_id=negotiation_id,
+        sender_user_id=user.id,
+        content=request.content,
+        message_type=request.message_type
+    )
+
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    # Broadcast to WebSocket connections
+    await ws_manager.send_message_event(
+        negotiation_id=negotiation_id,
+        message_data=result["message"],
+        sender_user_id=user.id
+    )
+
+    return result["message"]
+
+
+@app.get("/api/negotiations/{negotiation_id}/messages")
+async def get_messages(
+    negotiation_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    user: DBUser = Depends(require_auth),
+    negotiation_service: NegotiationService = Depends(get_negotiation_service),
+    message_service: MessageService = Depends(get_message_service)
+):
+    """
+    Get message history for a negotiation.
+
+    Args:
+        negotiation_id: ID of the negotiation
+        limit: Maximum number of messages (default: 50)
+        offset: Number of messages to skip (default: 0)
+        user: Authenticated user
+        negotiation_service: Negotiation service instance
+        message_service: Message service instance
+
+    Returns:
+        List of messages with pagination metadata
+    """
+    # Check access
+    if not negotiation_service.can_user_access(negotiation_id, user.id):
+        raise HTTPException(status_code=403, detail="You do not have access to this negotiation")
+
+    result = message_service.get_message_history(
+        negotiation_id=negotiation_id,
+        limit=limit,
+        offset=offset
+    )
+
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result["error"])
+
+    return result
+
+
+@app.patch("/api/negotiations/{negotiation_id}/messages/read")
+async def mark_messages_read(
+    negotiation_id: str,
+    request: MarkMessagesReadRequest,
+    user: DBUser = Depends(require_auth),
+    negotiation_service: NegotiationService = Depends(get_negotiation_service),
+    message_service: MessageService = Depends(get_message_service)
+):
+    """
+    Mark messages as read.
+
+    Args:
+        negotiation_id: ID of the negotiation
+        request: List of message IDs to mark as read
+        user: Authenticated user
+        negotiation_service: Negotiation service instance
+        message_service: Message service instance
+
+    Returns:
+        Success status with count of marked messages
+    """
+    # Check access
+    if not negotiation_service.can_user_access(negotiation_id, user.id):
+        raise HTTPException(status_code=403, detail="You do not have access to this negotiation")
+
+    result = message_service.mark_as_read(
+        message_ids=request.message_ids,
+        user_id=user.id
+    )
+
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    # Notify via WebSocket
+    await ws_manager.send_read_receipt(
+        negotiation_id=negotiation_id,
+        message_ids=request.message_ids,
+        reader_user_id=user.id
+    )
+
+    return {"status": "success", "marked_count": result["marked_count"]}
+
+
+# ===== WebSocket Endpoint =====
+
+@app.websocket("/ws/negotiations/{negotiation_id}")
+async def websocket_negotiation(
+    websocket: WebSocket,
+    negotiation_id: str,
+    token: Optional[str] = None,
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    WebSocket endpoint for real-time negotiation chat.
+
+    Args:
+        websocket: WebSocket connection
+        negotiation_id: ID of the negotiation
+        token: Session token for authentication
+        db: Database session
+
+    Protocol:
+        Client → Server:
+            - {type: "message", content: "..."}  # Send message
+            - {type: "typing", is_typing: true}  # Typing indicator
+            - {type: "read", message_ids: [...]} # Mark as read
+
+        Server → Client:
+            - {type: "message", ...}             # New message
+            - {type: "typing", user_id, is_typing} # Typing indicator
+            - {type: "read", message_ids, reader_user_id} # Read receipt
+            - {type: "user_joined", user_id}     # User joined
+            - {type: "user_left", user_id}       # User left
+            - {type: "ack", message_id}          # Message acknowledgment
+            - {type: "error", code, message}     # Error
+    """
+    # Accept the connection first
+    await websocket.accept()
+
+    try:
+        # Authenticate
+        if not token:
+            logger.warning(f"WebSocket connection to {negotiation_id} without token")
+            await websocket.send_json({
+                "type": "error",
+                "code": "auth_required",
+                "message": "Authentication required"
+            })
+            await websocket.close(code=1008, reason="Authentication required")
+            return
+
+        auth_service = AuthService(db)
+        user = auth_service.get_user_by_session(token)
+
+        if not user:
+            logger.warning(f"WebSocket connection with invalid token: {token[:10]}...")
+            await websocket.send_json({
+                "type": "error",
+                "code": "invalid_session",
+                "message": "Invalid session"
+            })
+            await websocket.close(code=1008, reason="Invalid session")
+            return
+
+        # Check access
+        negotiation_service = NegotiationService(db)
+        if not negotiation_service.can_user_access(negotiation_id, user.id):
+            logger.warning(f"User {user.id} attempted to access negotiation {negotiation_id} without permission")
+            await websocket.send_json({
+                "type": "error",
+                "code": "access_denied",
+                "message": "Access denied"
+            })
+            await websocket.close(code=1008, reason="Access denied")
+            return
+
+        # Register connection
+        await ws_manager.connect(negotiation_id, user.id, websocket)
+        logger.info(f"WebSocket connected: user {user.id} in negotiation {negotiation_id}")
+    except Exception as e:
+        logger.error(f"WebSocket connection error: {str(e)}")
+        await websocket.close(code=1011, reason="Internal server error")
+        return
+
+    try:
+        while True:
+            # Receive message from client
+            data = await websocket.receive_json()
+
+            message_type = data.get("type")
+
+            if message_type == "message":
+                # Send message
+                content = data.get("content", "")
+
+                if not content.strip():
+                    await ws_manager.send_error(
+                        negotiation_id, user.id,
+                        "empty_message", "Message content cannot be empty"
+                    )
+                    continue
+
+                if len(content) > 10000:
+                    await ws_manager.send_error(
+                        negotiation_id, user.id,
+                        "message_too_long", "Message exceeds 10,000 characters"
+                    )
+                    continue
+
+                # Persist message
+                message_service = MessageService(db)
+                result = message_service.send_message(
+                    negotiation_id=negotiation_id,
+                    sender_user_id=user.id,
+                    content=content,
+                    message_type="text"
+                )
+
+                if result["success"]:
+                    # Send acknowledgment to sender
+                    await ws_manager.send_acknowledgment(
+                        negotiation_id, user.id, result["message"]["id"]
+                    )
+
+                    # Broadcast to all users in negotiation
+                    await ws_manager.send_message_event(
+                        negotiation_id=negotiation_id,
+                        message_data=result["message"],
+                        sender_user_id=user.id
+                    )
+                else:
+                    await ws_manager.send_error(
+                        negotiation_id, user.id,
+                        "send_failed", result["error"]
+                    )
+
+            elif message_type == "typing":
+                # Typing indicator
+                is_typing = data.get("is_typing", False)
+                await ws_manager.send_typing_indicator(
+                    negotiation_id, user.id, is_typing
+                )
+
+            elif message_type == "read":
+                # Mark messages as read
+                message_ids = data.get("message_ids", [])
+                if message_ids:
+                    message_service = MessageService(db)
+                    result = message_service.mark_as_read(message_ids, user.id)
+
+                    if result["success"]:
+                        await ws_manager.send_read_receipt(
+                            negotiation_id, message_ids, user.id
+                        )
+
+            else:
+                await ws_manager.send_error(
+                    negotiation_id, user.id,
+                    "unknown_message_type", f"Unknown message type: {message_type}"
+                )
+
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for user {user.id} in negotiation {negotiation_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error for user {user.id}: {str(e)}")
+    finally:
+        # Disconnect
+        await ws_manager.disconnect(negotiation_id, user.id)
 
 
 if __name__ == "__main__":

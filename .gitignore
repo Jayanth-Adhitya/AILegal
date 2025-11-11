@@ -29,6 +29,12 @@ wheels/
 .env.local
 .env.production
 
+# Database
+legal_ai.db
+legal_ai.db-shm
+legal_ai.db-wal
+backups/
+
 # ChromaDB
 data/chroma_db/
 
@@ -59,3 +65,12 @@ htmlcov/
 
 # Documentation
 docs/_build/
+
+# OpenSpec (track approved specs, ignore drafts and artifacts)
+openspec 
+openspec/changes/*/draft/
+*.draft.md
+*.bak
+openspec/.openspec-cache/
+ .claude/
+ *.md

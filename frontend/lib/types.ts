@@ -141,3 +141,84 @@ export interface VoicesResponse {
   voices: string[];
   default: string | null;
 }
+
+// Negotiation Types
+export interface User {
+  id: string;
+  email: string;
+  company_name: string;
+  company_id: string;
+  created_at: string;
+}
+
+export interface Negotiation {
+  id: string;
+  contract_name: string;
+  contract_job_id?: string;
+  initiator_user_id: string;
+  receiver_user_id: string;
+  status: "pending" | "active" | "completed" | "rejected" | "cancelled";
+  created_at: string;
+  accepted_at?: string;
+  completed_at?: string;
+  initiator?: User;
+  receiver?: User;
+  unread_count?: number;
+}
+
+export interface NegotiationMessage {
+  id: string;
+  negotiation_id: string;
+  sender_user_id?: string;
+  sender_type: "user" | "system";
+  content: string;
+  message_type: "text" | "system";
+  created_at: string;
+  read_at?: string;
+  sender?: User;
+}
+
+export interface CreateNegotiationRequest {
+  receiver_email: string;
+  contract_name: string;
+  contract_job_id?: string;
+}
+
+export interface NegotiationListResponse {
+  success: boolean;
+  negotiations: Negotiation[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface MessageListResponse {
+  success: boolean;
+  messages: NegotiationMessage[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+export interface WebSocketMessage {
+  type: "message" | "typing" | "read" | "user_joined" | "user_left" | "ack" | "error";
+  message_id?: string;
+  user_id?: string;
+  is_typing?: boolean;
+  message_ids?: string[];
+  reader_user_id?: string;
+  code?: string;
+  message?: string;
+  timestamp?: string;
+  // Message data
+  id?: string;
+  negotiation_id?: string;
+  sender_user_id?: string;
+  sender_type?: "user" | "system";
+  content?: string;
+  message_type?: "text" | "system";
+  created_at?: string;
+  read_at?: string;
+  sender?: User;
+}

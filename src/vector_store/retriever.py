@@ -14,8 +14,14 @@ logger = logging.getLogger(__name__)
 class PolicyRetriever:
     """Retrieves relevant policies using semantic search."""
 
-    def __init__(self):
-        """Initialize retriever with embeddings and ChromaDB."""
+    def __init__(self, collection_name: Optional[str] = None, company_id: Optional[str] = None):
+        """
+        Initialize retriever with embeddings and ChromaDB.
+
+        Args:
+            collection_name: Optional specific collection name to use
+            company_id: Optional company ID to use for user-specific collection
+        """
         self.embeddings = GoogleGenerativeAIEmbeddings(
             model=settings.embedding_model,
             google_api_key=settings.google_api_key
@@ -26,11 +32,20 @@ class PolicyRetriever:
             settings=ChromaSettings(anonymized_telemetry=False)
         )
 
+        # Determine collection name
+        if company_id:
+            self.collection_name = f"policies_{company_id}"
+        elif collection_name:
+            self.collection_name = collection_name
+        else:
+            self.collection_name = settings.chroma_collection_name
+
         try:
-            self.collection = self.chroma_client.get_collection(
-                name=settings.chroma_collection_name
+            self.collection = self.chroma_client.get_or_create_collection(
+                name=self.collection_name,
+                metadata={"hnsw:space": "cosine"}
             )
-            logger.info(f"Connected to collection: {settings.chroma_collection_name}")
+            logger.info(f"Connected to collection: {self.collection_name}")
         except Exception as e:
             logger.error(f"Failed to get collection: {e}")
             raise

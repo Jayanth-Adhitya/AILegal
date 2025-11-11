@@ -19,8 +19,13 @@ logger = logging.getLogger(__name__)
 class PolicyEmbeddings:
     """Handles policy document embedding generation and ChromaDB storage."""
 
-    def __init__(self):
-        """Initialize embeddings model and ChromaDB client."""
+    def __init__(self, collection_name: Optional[str] = None):
+        """
+        Initialize embeddings model and ChromaDB client.
+
+        Args:
+            collection_name: Optional collection name. If not provided, uses default from settings.
+        """
         self.embeddings = GoogleGenerativeAIEmbeddings(
             model=settings.embedding_model,
             google_api_key=settings.google_api_key
@@ -31,8 +36,12 @@ class PolicyEmbeddings:
             settings=ChromaSettings(anonymized_telemetry=False)
         )
 
+        # Store collection name for later use
+        self.collection_name = collection_name or settings.chroma_collection_name
+
+        # Initialize default collection
         self.collection = self.chroma_client.get_or_create_collection(
-            name=settings.chroma_collection_name,
+            name=self.collection_name,
             metadata={"hnsw:space": "cosine"}
         )
 
@@ -42,7 +51,46 @@ class PolicyEmbeddings:
             separators=["\n\n", "\n", ". ", " ", ""]
         )
 
-        logger.info(f"Initialized PolicyEmbeddings with collection: {settings.chroma_collection_name}")
+        logger.info(f"Initialized PolicyEmbeddings with collection: {self.collection_name}")
+
+    def get_user_collection_name(self, company_id: str) -> str:
+        """
+        Generate collection name for a specific company.
+
+        Args:
+            company_id: The company's unique identifier
+
+        Returns:
+            Collection name in format: policies_{company_id}
+        """
+        return f"policies_{company_id}"
+
+    def get_or_create_user_collection(self, company_id: Optional[str] = None):
+        """
+        Get or create a user-specific collection.
+
+        Args:
+            company_id: Company ID for user-specific collection. If None, uses default.
+
+        Returns:
+            ChromaDB collection instance
+        """
+        if company_id:
+            collection_name = self.get_user_collection_name(company_id)
+            logger.info(f"Using user-specific collection: {collection_name}")
+        else:
+            collection_name = self.collection_name
+            logger.info(f"Using default collection: {collection_name}")
+
+        collection = self.chroma_client.get_or_create_collection(
+            name=collection_name,
+            metadata={
+                "hnsw:space": "cosine",
+                "company_id": company_id if company_id else None
+            }
+        )
+
+        return collection
 
     def load_policy_file(self, file_path: Path) -> str:
         """Load a policy file and return its content (supports .txt, .md, .pdf)."""
@@ -116,6 +164,64 @@ class PolicyEmbeddings:
 
         logger.info(f"Created {len(documents)} chunks from document")
         return documents
+
+    def ingest_single_file(self, file_path: Path, company_id: Optional[str] = None) -> int:
+        """
+        Ingest a single policy file into user-specific or default collection.
+
+        Args:
+            file_path: Path to the policy file
+            company_id: Optional company ID for user-specific collection
+
+        Returns:
+            Number of chunks ingested
+        """
+        try:
+            # Get the appropriate collection
+            collection = self.get_or_create_user_collection(company_id)
+
+            # Load file content
+            content = self.load_policy_file(file_path)
+
+            # Extract metadata
+            metadata = self.extract_metadata_from_filename(file_path.name)
+            metadata["source_type"] = "policy"
+            metadata["file_path"] = str(file_path)
+            if company_id:
+                metadata["company_id"] = company_id
+
+            # Add upload timestamp
+            from datetime import datetime
+            metadata["uploaded_at"] = datetime.now().isoformat()
+
+            # Chunk the document
+            documents = self.chunk_document(content, metadata)
+
+            # Generate embeddings
+            texts = [doc.page_content for doc in documents]
+            metadatas = [doc.metadata for doc in documents]
+
+            embeddings_list = self.embeddings.embed_documents(texts)
+
+            # Add to ChromaDB
+            import uuid
+            import time
+            timestamp = int(time.time() * 1000)
+            ids = [f"{file_path.stem}_{timestamp}_{i}" for i in range(len(documents))]
+
+            collection.add(
+                documents=texts,
+                embeddings=embeddings_list,
+                metadatas=metadatas,
+                ids=ids
+            )
+
+            logger.info(f"Ingested {file_path.name}: {len(documents)} chunks to {collection.name}")
+            return len(documents)
+
+        except Exception as e:
+            logger.error(f"Error ingesting file {file_path}: {e}")
+            raise
 
     def ingest_policy_directory(self, directory: str, policy_type: str = "policy") -> int:
         """

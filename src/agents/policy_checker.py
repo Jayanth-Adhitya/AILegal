@@ -15,15 +15,21 @@ logger = logging.getLogger(__name__)
 class PolicyChecker:
     """Check contract clauses against company policies using RAG."""
 
-    def __init__(self):
-        """Initialize policy checker with retriever and LLM."""
-        self.retriever = PolicyRetriever()
+    def __init__(self, company_id: str = None):
+        """
+        Initialize policy checker with retriever and LLM.
+
+        Args:
+            company_id: Optional company ID for user-specific policy retrieval
+        """
+        self.retriever = PolicyRetriever(company_id=company_id)
         self.llm = ChatGoogleGenerativeAI(
             model=settings.gemini_model,
             google_api_key=settings.google_api_key,
             temperature=settings.temperature
         )
-        logger.info("Initialized PolicyChecker")
+        self.company_id = company_id
+        logger.info(f"Initialized PolicyChecker{' for company: ' + company_id if company_id else ''}")
 
     async def generate_retrieval_queries(
         self,
