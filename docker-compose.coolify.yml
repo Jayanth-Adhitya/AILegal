@@ -54,23 +54,24 @@ services:
       args:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
         - NEXT_PUBLIC_COLLAB_URL=${NEXT_PUBLIC_COLLAB_URL:-}
+        - APP_PORT=3001
     restart: unless-stopped
     expose:
-      - "3000"
+      - "3001"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3001"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://backend:8000}
       - NEXT_PUBLIC_COLLAB_URL=${NEXT_PUBLIC_COLLAB_URL:-}
-      - PORT=3000
+      - PORT=3001
     depends_on:
       backend:
         condition: service_healthy
     networks:
       - cirilla-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001"]
       interval: 30s
       timeout: 10s
       retries: 3
