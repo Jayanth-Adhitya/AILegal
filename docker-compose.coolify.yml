@@ -81,8 +81,7 @@ services:
     expose:
       - "1234"
     labels:
-      - "traefik.enable=true"
-      - "traefik.http.services.collaboration.loadbalancer.server.port=1234"
+      - "traefik.http.services.collaboration-server.loadbalancer.server.port=1234"
     environment:
       - NODE_ENV=production
       - COLLAB_PORT=1234
