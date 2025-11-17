@@ -60,6 +60,9 @@ app.add_middleware(
         "http://127.0.0.1:3001",
         "https://127.0.0.1:3001",
         "null",  # For Office Add-in iframe
+        # Production domains
+        "https://ailegal.cirilla.ai",  # Production frontend
+        "https://api.ailegal.cirilla.ai",  # Production API
     ],
     allow_credentials=True,
     allow_methods=["*"],
