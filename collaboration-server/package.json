@@ -1,0 +1,19 @@
+{
+  "name": "superdoc-collaboration-server",
+  "version": "1.0.0",
+  "description": "SuperDoc collaboration server for real-time editing",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@fastify/websocket": "^8.3.0",
+    "@superdoc-dev/superdoc-yjs-collaboration": "latest",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.28.0",
+    "y-protocols": "^1.0.6",
+    "yjs": "^13.6.27"
+  }
+}

@@ -54,25 +54,9 @@ data/outputs/*
 # OS
 .DS_Store
 Thumbs.db
-nul
 
 # Logs
 *.log
-
-# Collaboration Server
-collaboration-server/
-
-# Word Add-in
-word-addin/
-
-# Uploads (root level)
-uploads/
-
-# Utility/Test Scripts
-add_docx_columns.py
-clear_specific_doc.py
-clear_yjs_state.py
-test_document_api.py
 
 # Testing
 .pytest_cache/
