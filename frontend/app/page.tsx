@@ -408,6 +408,11 @@ export default function LandingPage() {
             <p className="text-sm text-gray-600">
               &copy; {new Date().getFullYear()} Cirilla. All rights reserved.
             </p>
+            <p className="text-xs text-gray-500 mt-3">
+              Designed, developed, and owned by{" "}
+              <span className="font-semibold text-gray-700">MEHH Artificial Intelligence Services</span>
+              {" "}— shaping the future of intelligent systems.
+            </p>
           </div>
         </div>
       </footer>
