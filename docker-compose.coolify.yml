@@ -83,6 +83,11 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.services.collaboration.loadbalancer.server.port=1234"
+      # Router rule - map domain to this service
+      - "traefik.http.routers.collaboration.rule=Host(`collab.ailegal.cirilla.ai`)"
+      - "traefik.http.routers.collaboration.entrypoints=https"
+      - "traefik.http.routers.collaboration.tls=true"
+      - "traefik.http.routers.collaboration.service=collaboration"
       # WebSocket support for real-time collaboration
       - "traefik.http.middlewares.collaboration-ws.headers.customrequestheaders.Connection=upgrade"
       - "traefik.http.middlewares.collaboration-ws.headers.customrequestheaders.Upgrade=websocket"
