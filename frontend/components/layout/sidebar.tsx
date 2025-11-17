@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button";
 const navigation = [
   {
     name: "Dashboard",
-    href: "/",
+    href: "/dashboard",
     icon: LayoutDashboard,
   },
   {
@@ -64,13 +64,15 @@ export function Sidebar() {
   };
 
   return (
-    <div className="flex h-full w-64 flex-col border-r bg-white">
+    <div className="flex h-full w-64 flex-col bg-card shadow-dual-md">
       {/* Logo */}
-      <div className="flex h-16 items-center gap-2 border-b px-6">
-        <Scale className="h-8 w-8 text-primary" />
+      <div className="flex h-16 items-center gap-2 px-6">
+        <div className="p-2 bg-gradient-to-br from-yellow-200 to-yellow-300 rounded-lg shadow-dual-sm">
+          <Scale className="h-6 w-6 text-yellow-700" />
+        </div>
         <div>
-          <h1 className="text-lg font-bold text-gray-900">Legal Assistant</h1>
-          <p className="text-xs text-gray-500">AI-Powered</p>
+          <h1 className="text-lg font-bold text-gray-900">Cirilla</h1>
+          <p className="text-xs text-gray-500">AI Legal Assistant</p>
         </div>
       </div>
 
@@ -83,10 +85,10 @@ export function Sidebar() {
               key={item.name}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
                 isActive
-                  ? "bg-primary text-primary-foreground"
-                  : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                  ? "bg-gradient-to-r from-yellow-300 to-yellow-400 text-gray-900 shadow-dual-sm"
+                  : "text-gray-700 hover:bg-yellow-100/50 hover:text-gray-900"
               )}
             >
               <item.icon className="h-5 w-5" />
@@ -97,16 +99,16 @@ export function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="border-t p-4 space-y-3">
+      <div className="p-4 space-y-3">
         {/* User Info or Auth Buttons */}
         {!loading && (
           <>
             {user ? (
               <div className="space-y-3">
                 {/* User Info */}
-                <div className="rounded-lg bg-gray-50 p-3">
+                <div className="rounded-lg bg-yellow-100/50 p-3">
                   <div className="flex items-center gap-2 mb-1">
-                    <Building2 className="h-4 w-4 text-gray-600" />
+                    <Building2 className="h-4 w-4 text-yellow-700" />
                     <p className="text-sm font-medium text-gray-900">{user.company_name}</p>
                   </div>
                   <p className="text-xs text-gray-600">{user.email}</p>
@@ -147,8 +149,8 @@ export function Sidebar() {
         <Link
           href="/settings"
           className={cn(
-            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900",
-            pathname === "/settings" && "bg-primary text-primary-foreground"
+            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 transition-all duration-200 hover:bg-yellow-100/50 hover:text-gray-900",
+            pathname === "/settings" && "bg-gradient-to-r from-yellow-300 to-yellow-400 text-gray-900 shadow-dual-sm"
           )}
         >
           <Settings className="h-5 w-5" />
@@ -156,9 +158,9 @@ export function Sidebar() {
         </Link>
 
         {/* API Status */}
-        <div className="rounded-lg bg-blue-50 p-3">
-          <p className="text-xs font-medium text-blue-900">API Status</p>
-          <p className="mt-1 text-xs text-blue-700">
+        <div className="rounded-lg bg-yellow-200/30 p-3">
+          <p className="text-xs font-medium text-yellow-900">API Status</p>
+          <p className="mt-1 text-xs text-yellow-700">
             {typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}
           </p>
         </div>

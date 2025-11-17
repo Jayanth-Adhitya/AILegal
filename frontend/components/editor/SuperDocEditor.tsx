@@ -185,6 +185,7 @@ export const SuperDocEditor = forwardRef<SuperDocEditorRef, SuperDocEditorProps>
             // The server runs on port 1234 and expects /collaboration/:documentId
             const wsProtocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
             const wsHost = collaboration.serverUrl ||
+              process.env.NEXT_PUBLIC_COLLAB_URL ||
               (typeof window !== "undefined"
                 ? `${wsProtocol}//${window.location.hostname}:1234`
                 : "ws://localhost:1234");

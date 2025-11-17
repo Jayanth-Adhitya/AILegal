@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 
-const PUBLIC_ROUTES = ['/login', '/register']
+const PUBLIC_ROUTES = ['/login', '/register', '/']
 
 export function RouteGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -27,9 +27,9 @@ export function RouteGuard({ children }: { children: React.ReactNode }) {
   // Show loading state
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-screen items-center justify-center bg-gradient-to-br from-yellow-50 to-yellow-100">
         <div className="text-center">
-          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-t-2 border-blue-600" />
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-t-2 border-yellow-600" />
           <p className="mt-4 text-sm text-gray-600">Loading...</p>
         </div>
       </div>
@@ -39,11 +39,11 @@ export function RouteGuard({ children }: { children: React.ReactNode }) {
   // Show login required message for protected routes
   if (!user && !PUBLIC_ROUTES.includes(pathname)) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-50">
-        <div className="max-w-md rounded-lg bg-white p-8 text-center shadow-lg">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-blue-100">
+      <div className="flex h-screen items-center justify-center bg-gradient-to-br from-yellow-50 to-yellow-100">
+        <div className="max-w-md rounded-lg glass-card p-8 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-yellow-200 to-yellow-300 shadow-dual-md">
             <svg
-              className="h-8 w-8 text-blue-600"
+              className="h-8 w-8 text-yellow-700"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -62,7 +62,7 @@ export function RouteGuard({ children }: { children: React.ReactNode }) {
           </p>
           <button
             onClick={() => router.push(`/login?redirect=${encodeURIComponent(pathname)}`)}
-            className="w-full rounded-lg bg-blue-600 px-6 py-3 font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            className="w-full rounded-lg btn-gradient px-6 py-3 font-medium text-gray-900 transition-all hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2"
           >
             Go to Login
           </button>
@@ -70,7 +70,7 @@ export function RouteGuard({ children }: { children: React.ReactNode }) {
             Don't have an account?{' '}
             <button
               onClick={() => router.push('/register')}
-              className="font-medium text-blue-600 hover:text-blue-500"
+              className="font-medium text-yellow-700 hover:text-yellow-800 transition-colors"
             >
               Register here
             </button>

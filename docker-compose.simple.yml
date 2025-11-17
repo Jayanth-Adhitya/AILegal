@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    container_name: legal-assistant-backend
+    container_name: cirilla-backend
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
@@ -46,7 +46,7 @@ services:
       dockerfile: Dockerfile.frontend
       args:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8080}
-    container_name: legal-assistant-frontend
+    container_name: cirilla-frontend
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
       - PORT=3001
@@ -55,6 +55,48 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    restart: unless-stopped
+
+  collaboration-server:
+    build:
+      context: ./collaboration-server
+      dockerfile: Dockerfile
+    container_name: cirilla-collaboration
+    environment:
+      - NODE_ENV=production
+      - COLLAB_PORT=1234
+      - FASTAPI_URL=http://backend:8080
+    #ports:
+    #  - "1234:1234"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:1234/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  word-addin:
+    build:
+      context: ./word-addin
+      dockerfile: Dockerfile
+    container_name: cirilla-word-addin
+    environment:
+      - NODE_ENV=production
+    #ports:
+    #  - "3002:3001"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
 
 volumes:

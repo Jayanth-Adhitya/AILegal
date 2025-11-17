@@ -39,7 +39,7 @@ services:
     volumes:
       - backend_data:/app/data
     networks:
-      - legal-assistant-network
+      - cirilla-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -53,6 +53,7 @@ services:
       dockerfile: Dockerfile.frontend
       args:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        - NEXT_PUBLIC_COLLAB_URL=${NEXT_PUBLIC_COLLAB_URL:-}
     restart: unless-stopped
     expose:
       - "3000"
@@ -61,12 +62,13 @@ services:
       - "traefik.http.services.frontend.loadbalancer.server.port=3000"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://backend:8000}
+      - NEXT_PUBLIC_COLLAB_URL=${NEXT_PUBLIC_COLLAB_URL:-}
       - PORT=3000
     depends_on:
       backend:
         condition: service_healthy
     networks:
-      - legal-assistant-network
+      - cirilla-network
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
       interval: 30s
@@ -74,8 +76,62 @@ services:
       retries: 3
       start_period: 40s
 
+  collaboration-server:
+    build:
+      context: ./collaboration-server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "1234"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.collaboration.loadbalancer.server.port=1234"
+      # WebSocket support for real-time collaboration
+      - "traefik.http.middlewares.collaboration-ws.headers.customrequestheaders.Connection=upgrade"
+      - "traefik.http.middlewares.collaboration-ws.headers.customrequestheaders.Upgrade=websocket"
+      - "traefik.http.routers.collaboration.middlewares=collaboration-ws"
+    environment:
+      - NODE_ENV=production
+      - COLLAB_PORT=1234
+      - FASTAPI_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - cirilla-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:1234/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  word-addin:
+    build:
+      context: ./word-addin
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "3001"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.word-addin.loadbalancer.server.port=3001"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - cirilla-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
 networks:
-  legal-assistant-network:
+  cirilla-network:
     driver: bridge
 
 volumes:

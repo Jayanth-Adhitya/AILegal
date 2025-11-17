@@ -9,6 +9,10 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
+        display: ["var(--font-space-grotesk)", "system-ui", "sans-serif"],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -43,11 +47,65 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // Yellow theme color scale
+        yellow: {
+          50: "hsl(var(--yellow-50))",
+          100: "hsl(var(--yellow-100))",
+          200: "hsl(var(--yellow-200))",
+          300: "hsl(var(--yellow-300))",
+          400: "hsl(var(--yellow-400))",
+          500: "hsl(var(--yellow-500))",
+          600: "hsl(var(--yellow-600))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      boxShadow: {
+        "dual-sm": "var(--shadow-sm)",
+        "dual-md": "var(--shadow-md)",
+        "dual-lg": "var(--shadow-lg)",
+        "dual-xl": "var(--shadow-xl)",
+      },
+      backdropBlur: {
+        glass: "var(--glass-blur)",
+      },
+      animation: {
+        "fade-in": "fadeIn 0.4s ease-out",
+        "slide-up": "slideUp 0.4s ease-out",
+        "slide-down": "slideDown 0.3s ease-out",
+        "scale-in": "scaleIn 0.3s ease-out",
+      },
+      keyframes: {
+        fadeIn: {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        slideUp: {
+          "0%": { opacity: "0", transform: "translateY(20px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        slideDown: {
+          "0%": { opacity: "0", transform: "translateY(-10px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        scaleIn: {
+          "0%": { opacity: "0", transform: "scale(0.95)" },
+          "100%": { opacity: "1", transform: "scale(1)" },
+        },
+        shimmer: {
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(100%)" },
+        },
+        float: {
+          "0%, 100%": { transform: "translateY(0)" },
+          "50%": { transform: "translateY(-10px)" },
+        },
+      },
+      screens: {
+        xs: "475px",
       },
     },
   },
