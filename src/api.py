@@ -6,9 +6,9 @@ import uuid
 import io
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form, Request, Response
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form, Request, Response, Query, Header
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -24,12 +24,16 @@ from .services.groq_service import groq_service
 from .services.auth_service import AuthService
 from .core.prompts import CHATBOT_PROMPT, CHATBOT_POLICY_SEARCH_PROMPT
 from langchain_google_genai import ChatGoogleGenerativeAI
-from .database import init_db, get_db, User as DBUser, Session as DBSession, AnalysisJob as DBAnalysisJob, Negotiation, NegotiationMessage
+from .database import init_db, get_db, User as DBUser, Session as DBSession, AnalysisJob as DBAnalysisJob, Negotiation, NegotiationMessage, Document
 from sqlalchemy.orm import Session as DBSessionType
 from fastapi import Depends, WebSocket, WebSocketDisconnect
 from .services.negotiation_service import NegotiationService
 from .services.message_service import MessageService
 from .services.websocket_manager import ws_manager
+from .services.document_service import DocumentService
+from .services.docx_parser_service import DocxParserService
+from .services.document_sync_service import document_sync_service
+from .services.collab_websocket_adapter import collab_ws_manager
 
 # Configure logging
 logging.basicConfig(
@@ -50,9 +54,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # Next.js dev server
-        "http://localhost:3001",  # Alternative port
+        "http://localhost:3001",  # Word Add-in dev server
+        "https://localhost:3001",  # Word Add-in HTTPS
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
+        "https://127.0.0.1:3001",
+        "null",  # For Office Add-in iframe
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -67,6 +74,24 @@ async def startup_event():
     logger.info("🚀 Starting AI Legal Assistant API...")
     init_db()
     logger.info("✅ Database initialized and ready")
+    # Start collaboration WebSocket manager
+    try:
+        await collab_ws_manager.start()
+        logger.info("✅ Collaboration service started")
+    except Exception as e:
+        logger.error(f"❌ Failed to start collaboration service: {e}")
+
+
+# Shutdown event to clean up resources
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on application shutdown."""
+    logger.info("🛑 Shutting down AI Legal Assistant API...")
+    try:
+        await collab_ws_manager.stop()
+        logger.info("✅ Collaboration service stopped")
+    except Exception as e:
+        logger.error(f"❌ Error stopping collaboration service: {e}")
 
 
 # Helper function to get AuthService with database session
@@ -87,13 +112,31 @@ def get_message_service(db: DBSessionType = Depends(get_db)) -> MessageService:
     return MessageService(db)
 
 
+# Helper function to get DocumentService with database session
+def get_document_service(db: DBSessionType = Depends(get_db)) -> DocumentService:
+    """Get DocumentService instance with database session."""
+    return DocumentService(db)
+
+
 # Helper dependency to get current authenticated user (requires authentication)
 def require_auth(
     request: Request,
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
+    authorization: Optional[str] = Header(None)
 ) -> DBUser:
-    """Get current authenticated user or raise 401."""
-    session_id = request.cookies.get("session_id")
+    """Get current authenticated user or raise 401.
+
+    Supports both cookie-based and token-based authentication for Word Add-in compatibility.
+    """
+    session_id = None
+
+    # Try Authorization header first (for Word Add-in)
+    if authorization and authorization.startswith("Bearer "):
+        session_id = authorization[7:]  # Remove "Bearer " prefix
+
+    # Fall back to cookie-based auth
+    if not session_id:
+        session_id = request.cookies.get("session_id")
 
     if not session_id:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -156,6 +199,7 @@ class AuthResponse(BaseModel):
     message: str
     user: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    session_token: Optional[str] = None  # For Word Add-in Bearer token auth
 
 
 class CreateNegotiationRequest(BaseModel):
@@ -184,6 +228,34 @@ class SendMessageRequest(BaseModel):
 class MarkMessagesReadRequest(BaseModel):
     """Request model for marking messages as read."""
     message_ids: list[str]
+
+
+class CreateDocumentRequest(BaseModel):
+    """Request model for creating a document."""
+    title: str
+    negotiation_id: Optional[str] = None
+    analysis_job_id: Optional[str] = None
+    import_source: Optional[str] = None
+
+
+class UpdateDocumentRequest(BaseModel):
+    """Request model for updating a document."""
+    title: Optional[str] = None
+    status: Optional[str] = None
+    yjs_state_vector: Optional[str] = None
+
+
+class AddCollaboratorRequest(BaseModel):
+    """Request model for adding a collaborator to a document."""
+    user_id: str
+    permission: str = "edit"
+
+
+class WordAddinAnalyzeTextRequest(BaseModel):
+    """Request model for Word Add-in text analysis."""
+    document_text: str
+    paragraphs: List[str]
+    paragraph_indices: Optional[List[int]] = None  # Original Word paragraph indices
 
 
 @app.get("/")
@@ -303,7 +375,8 @@ async def login(
             return AuthResponse(
                 success=True,
                 message="Login successful",
-                user=result["user"]
+                user=result["user"],
+                session_token=result["session_id"]  # Include for Word Add-in
             )
         else:
             return AuthResponse(
@@ -567,7 +640,10 @@ async def upload_contract(
 
 
 @app.get("/api/contracts")
-async def list_contracts(request: Request):
+async def list_contracts(
+    request: Request,
+    auth_service: AuthService = Depends(get_auth_service)
+):
     """
     List contracts for the current user or all if anonymous.
     """
@@ -674,13 +750,16 @@ def run_contract_analysis(job_id: str, contract_path: str):
         company_id = None
 
         if job and job.get("user_id"):
-            # Find user by user_id to get company_id
+            # Find user by user_id to get company_id from database
             user_id = job["user_id"]
-            for user in auth_service.users.values():
-                if user.id == user_id:
+            db = next(get_db())
+            try:
+                user = db.query(DBUser).filter(DBUser.id == user_id).first()
+                if user:
                     company_id = user.company_id
                     logger.info(f"Using company-specific policies for company: {company_id}")
-                    break
+            finally:
+                db.close()
 
         # Initialize analyzer with company_id for user-specific policy retrieval
         analyzer = ContractAnalyzer(company_id=company_id)
@@ -721,7 +800,11 @@ def run_contract_analysis(job_id: str, contract_path: str):
 
 
 @app.get("/api/contracts/{job_id}/status")
-async def get_analysis_status(request: Request, job_id: str):
+async def get_analysis_status(
+    request: Request,
+    job_id: str,
+    auth_service: AuthService = Depends(get_auth_service)
+):
     """
     Get the status of a contract analysis job.
 
@@ -1168,7 +1251,12 @@ async def delete_analysis_job(job_id: str):
 # ===== Chatbot and Voice Endpoints =====
 
 @app.post("/api/chat/{job_id}")
-async def chat_with_assistant(job_id: str, chat_request: ChatRequest, request: Request):
+async def chat_with_assistant(
+    job_id: str,
+    chat_request: ChatRequest,
+    request: Request,
+    auth_service: AuthService = Depends(get_auth_service)
+):
     """
     Chat endpoint with Server-Sent Events streaming.
     Provides COMPLETE analysis data to LLM for accurate responses.
@@ -1888,6 +1976,710 @@ async def mark_messages_read(
     return {"status": "success", "marked_count": result["marked_count"]}
 
 
+# ===== Document Endpoints =====
+
+@app.post("/api/documents")
+async def create_document(
+    request: CreateDocumentRequest,
+    user: DBUser = Depends(require_auth),
+    document_service: DocumentService = Depends(get_document_service)
+):
+    """
+    Create a new document.
+
+    Args:
+        request: Document creation request
+        user: Authenticated user (creator)
+        document_service: Document service instance
+
+    Returns:
+        Created document data or error
+    """
+    result = document_service.create_document(
+        title=request.title,
+        created_by_user_id=user.id,
+        negotiation_id=request.negotiation_id,
+        analysis_job_id=request.analysis_job_id,
+        import_source=request.import_source
+    )
+
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return result["document"]
+
+
+@app.get("/api/documents")
+async def list_documents(
+    limit: int = 50,
+    offset: int = 0,
+    user: DBUser = Depends(require_auth),
+    document_service: DocumentService = Depends(get_document_service)
+):
+    """
+    List user's documents with pagination.
+
+    Args:
+        limit: Maximum number of results (default: 50)
+        offset: Number of results to skip (default: 0)
+        user: Authenticated user
+        document_service: Document service instance
+
+    Returns:
+        List of documents with pagination metadata
+    """
+    result = document_service.list_user_documents(
+        user_id=user.id,
+        limit=limit,
+        offset=offset
+    )
+
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result["error"])
+
+    return result
+
+
+@app.get("/api/documents/{document_id}")
+async def get_document(
+    document_id: str,
+    user: DBUser = Depends(require_auth),
+    document_service: DocumentService = Depends(get_document_service)
+):
+    """
+    Get document details.
+
+    Args:
+        document_id: ID of the document
+        user: Authenticated user
+        document_service: Document service instance
+
+    Returns:
+        Document data or error
+    """
+    result = document_service.get_document(
+        document_id=document_id,
+        user_id=user.id
+    )
+
+    if not result["success"]:
+        if result.get("error") == "Access denied":
+            raise HTTPException(status_code=403, detail="You do not have access to this document")
+        raise HTTPException(status_code=404, detail=result["error"])
+
+    return result["document"]
+
+
+@app.patch("/api/documents/{document_id}")
+async def update_document(
+    document_id: str,
+    request: UpdateDocumentRequest,
+    user: DBUser = Depends(require_auth),
+    document_service: DocumentService = Depends(get_document_service)
+):
+    """
+    Update document metadata or content state.
+
+    Args:
+        document_id: ID of the document
+        request: Update request with optional fields
+        user: Authenticated user
+        document_service: Document service instance
+
+    Returns:
+        Updated document data or error
+    """
+    result = document_service.update_document(
+        document_id=document_id,
+        user_id=user.id,
+        title=request.title,
+        status=request.status,
+        yjs_state_vector=request.yjs_state_vector
+    )
+
+    if not result["success"]:
+        if result.get("error") == "Access denied":
+            raise HTTPException(status_code=403, detail="You do not have access to this document")
+        raise HTTPException(status_code=404, detail=result["error"])
+
+    return result["document"]
+
+
+@app.delete("/api/documents/{document_id}")
+async def delete_document(
+    document_id: str,
+    user: DBUser = Depends(require_auth),
+    document_service: DocumentService = Depends(get_document_service)
+):
+    """
+    Delete a document (only creator can delete).
+
+    Args:
+        document_id: ID of the document
+        user: Authenticated user
+        document_service: Document service instance
+
+    Returns:
+        Success status
+    """
+    result = document_service.delete_document(
+        document_id=document_id,
+        user_id=user.id
+    )
+
+    if not result["success"]:
+        if result.get("error") == "Access denied":
+            raise HTTPException(status_code=403, detail="Only the creator can delete this document")
+        raise HTTPException(status_code=404, detail=result["error"])
+
+    return {"status": "success", "message": "Document deleted successfully"}
+
+
+@app.post("/api/documents/{document_id}/content")
+async def update_document_content(
+    document_id: str,
+    file: UploadFile = File(...),
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Update document content by uploading a new DOCX file.
+    Used by SuperDoc editor for saving document changes.
+
+    Args:
+        document_id: ID of the document
+        file: Uploaded DOCX file
+        user: Authenticated user
+        db: Database session
+
+    Returns:
+        Updated document data
+    """
+    # Verify file type
+    if not file.filename.endswith(".docx"):
+        raise HTTPException(status_code=400, detail="Only DOCX files are supported")
+
+    # Get document service
+    document_service = DocumentService(db)
+
+    # Check if user has access to the document
+    if not document_service.can_user_access(document_id, user.id):
+        raise HTTPException(status_code=403, detail="You do not have access to this document")
+
+    # Get the document
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Initialize DOCX parser service
+    docx_parser = DocxParserService()
+
+    # Save the uploaded file
+    try:
+        file_path, file_name, file_size = await docx_parser.save_uploaded_file(
+            file, document_id
+        )
+
+        # Update document with new file path
+        document.original_file_path = file_path
+        document.original_file_name = file_name
+        document.original_file_size = file_size
+        document.updated_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(document)
+
+        # Return updated document
+        return {
+            "id": document.id,
+            "title": document.title,
+            "status": document.status,
+            "created_by_user_id": document.created_by_user_id,
+            "negotiation_id": document.negotiation_id,
+            "analysis_job_id": document.analysis_job_id,
+            "original_file_path": document.original_file_path,
+            "original_file_name": document.original_file_name,
+            "original_file_size": document.original_file_size,
+            "import_source": document.import_source,
+            "created_at": document.created_at.isoformat(),
+            "updated_at": document.updated_at.isoformat(),
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to update document content: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save document: {str(e)}")
+
+
+@app.get("/api/documents/{document_id}/collaborators")
+async def get_collaborators(
+    document_id: str,
+    user: DBUser = Depends(require_auth),
+    document_service: DocumentService = Depends(get_document_service)
+):
+    """
+    Get list of collaborators for a document.
+
+    Args:
+        document_id: ID of the document
+        user: Authenticated user
+        document_service: Document service instance
+
+    Returns:
+        List of collaborators with user details
+    """
+    result = document_service.get_collaborators(
+        document_id=document_id,
+        user_id=user.id
+    )
+
+    if not result["success"]:
+        if result.get("error") == "Access denied":
+            raise HTTPException(status_code=403, detail="You do not have access to this document")
+        raise HTTPException(status_code=404, detail=result["error"])
+
+    return {"collaborators": result["collaborators"]}
+
+
+@app.post("/api/documents/{document_id}/collaborators")
+async def add_collaborator(
+    document_id: str,
+    request: AddCollaboratorRequest,
+    user: DBUser = Depends(require_auth),
+    document_service: DocumentService = Depends(get_document_service)
+):
+    """
+    Add a collaborator to a document.
+
+    Args:
+        document_id: ID of the document
+        request: Collaborator addition request
+        user: Authenticated user (must be existing collaborator)
+        document_service: Document service instance
+
+    Returns:
+        Success status with collaborator details
+    """
+    result = document_service.add_collaborator(
+        document_id=document_id,
+        user_id=request.user_id,
+        added_by_user_id=user.id,
+        permission=request.permission
+    )
+
+    if not result["success"]:
+        if result.get("error") == "Access denied":
+            raise HTTPException(status_code=403, detail="You do not have access to this document")
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return result
+
+
+# ===== DOCX Import Endpoints =====
+
+@app.post("/api/documents/import-docx")
+async def import_docx(
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    import_source: str = Form("original"),
+    negotiation_id: Optional[str] = Form(None),
+    analysis_job_id: Optional[str] = Form(None),
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Import a DOCX file and convert it to a Lexical document.
+
+    Args:
+        file: Uploaded DOCX file
+        title: Document title (defaults to filename)
+        import_source: 'original' or 'ai_redlined'
+        negotiation_id: Optional link to negotiation
+        analysis_job_id: Optional link to AI analysis
+        user: Authenticated user
+        db: Database session
+
+    Returns:
+        Document ID, HTML content, track changes, and metadata
+    """
+    # Validate file
+    if not file.filename.endswith('.docx'):
+        raise HTTPException(status_code=400, detail="File must be a .docx file")
+
+    # Read file content
+    file_content = await file.read()
+
+    # Limit file size to 10MB
+    if len(file_content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size must be less than 10MB")
+
+    # Generate document ID
+    document_id = str(uuid.uuid4())
+
+    # Initialize services
+    docx_parser = DocxParserService()
+    document_service = DocumentService(db)
+
+    # Save file to disk
+    file_info = docx_parser.save_uploaded_file(file_content, document_id, file.filename)
+
+    # Parse DOCX and extract content
+    structure = docx_parser.parse_docx_structure(file_info["file_path"])
+    if not structure["success"]:
+        raise HTTPException(status_code=500, detail=f"Failed to parse DOCX: {structure.get('error')}")
+
+    # Extract track changes
+    track_changes = docx_parser.extract_track_changes(file_info["file_path"])
+
+    # Convert to HTML
+    html_result = docx_parser.convert_to_html(file_info["file_path"])
+    if not html_result["success"]:
+        raise HTTPException(status_code=500, detail=f"Failed to convert to HTML: {html_result.get('error')}")
+
+    # Get metadata
+    metadata = docx_parser.get_document_metadata(file_info["file_path"])
+
+    # Use title from form or metadata or filename
+    doc_title = title or metadata.get("title") or file.filename.replace('.docx', '')
+
+    # Create document in database
+    result = document_service.create_document(
+        title=doc_title,
+        created_by_user_id=user.id,
+        negotiation_id=negotiation_id,
+        analysis_job_id=analysis_job_id,
+        import_source=import_source
+    )
+
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result.get("error"))
+
+    # Update document with file info and HTML content
+    doc = db.query(Document).filter(Document.id == result["document"]["id"]).first()
+    if doc:
+        doc.original_file_path = file_info["file_path"]
+        doc.original_file_name = file_info["file_name"]
+        doc.original_file_size = file_info["file_size"]
+
+        # Validate HTML is not empty
+        if not html_result["html"] or html_result["html"].strip() == "":
+            logger.error("HTML conversion resulted in empty content")
+            raise HTTPException(status_code=500, detail="DOCX conversion produced empty content")
+
+        # Store the HTML in lexical_state so frontend can convert it
+        # Frontend will convert HTML to Lexical and save it back
+        # NOTE: yjs_state_vector is reserved for Yjs binary data only
+        doc.lexical_state = html_result["html"]
+        logger.info(f"Storing HTML content for document {doc.id}: {len(html_result['html'])} characters")
+
+        # CRITICAL: Commit to database before returning
+        db.commit()
+        db.refresh(doc)
+        logger.info(f"Document {doc.id} updated and committed successfully")
+
+    # Store track changes in database
+    from .database import DocumentChange
+    for change in track_changes:
+        doc_change = DocumentChange(
+            id=str(uuid.uuid4()),
+            document_id=result["document"]["id"],
+            change_type=change["type"],
+            position=change["position"],
+            content=change["content"],
+            user_id=user.id,  # Will need to map author name to user later
+            change_metadata=json.dumps({
+                "author": change["author"],
+                "date": change["date"],
+                "change_id": change["change_id"]
+            })
+        )
+        db.add(doc_change)
+
+    db.commit()
+
+    return {
+        "success": True,
+        "document_id": result["document"]["id"],
+        "html": html_result["html"],
+        "track_changes": track_changes,
+        "metadata": metadata,
+        "paragraph_count": structure.get("paragraph_count", 0),
+        "table_count": structure.get("table_count", 0)
+    }
+
+
+@app.get("/api/documents/{document_id}/original")
+async def download_original_docx(
+    document_id: str,
+    user: DBUser = Depends(require_auth),
+    document_service: DocumentService = Depends(get_document_service),
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Download the original DOCX file for a document.
+
+    Args:
+        document_id: ID of the document
+        user: Authenticated user
+        document_service: Document service instance
+        db: Database session
+
+    Returns:
+        DOCX file as download
+    """
+    # Check access
+    if not document_service.can_user_access(document_id, user.id):
+        raise HTTPException(status_code=403, detail="You do not have access to this document")
+
+    # Get document
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if not doc.original_file_path:
+        raise HTTPException(status_code=404, detail="Original file not found")
+
+    # Check if file exists
+    if not os.path.exists(doc.original_file_path):
+        raise HTTPException(status_code=404, detail="Original file not found on disk")
+
+    # Return file
+    return FileResponse(
+        path=doc.original_file_path,
+        filename=doc.original_file_name or "document.docx",
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+
+
+@app.get("/api/documents/{document_id}/track-changes")
+async def get_track_changes(
+    document_id: str,
+    user: DBUser = Depends(require_auth),
+    document_service: DocumentService = Depends(get_document_service),
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Get track changes for a document.
+
+    Args:
+        document_id: ID of the document
+        user: Authenticated user
+        document_service: Document service instance
+        db: Database session
+
+    Returns:
+        List of track changes
+    """
+    # Check access
+    if not document_service.can_user_access(document_id, user.id):
+        raise HTTPException(status_code=403, detail="You do not have access to this document")
+
+    # Get track changes
+    from .database import DocumentChange
+    changes = db.query(DocumentChange).filter(
+        DocumentChange.document_id == document_id
+    ).order_by(DocumentChange.created_at).all()
+
+    return {
+        "success": True,
+        "changes": [
+            {
+                "id": change.id,
+                "type": change.change_type,
+                "position": change.position,
+                "content": change.content,
+                "user_id": change.user_id,
+                "created_at": change.created_at.isoformat(),
+                "metadata": json.loads(change.change_metadata) if change.change_metadata else {}
+            }
+            for change in changes
+        ]
+    }
+
+
+# ===== Word Add-in Endpoints =====
+
+@app.post("/api/word-addin/analyze-text")
+async def analyze_text_from_addin(
+    request: WordAddinAnalyzeTextRequest,
+    user: DBUser = Depends(require_auth)
+):
+    """
+    Analyze document text directly from Word Add-in.
+
+    This endpoint accepts raw document text and paragraphs, analyzes them
+    using the existing ContractAnalyzer, and returns results with paragraph
+    indices for Word navigation.
+
+    Args:
+        request: Document text and paragraphs array
+        user: Authenticated user
+
+    Returns:
+        Analysis results with paragraph indices for Word operations
+    """
+    try:
+        logger.info(f"Word Add-in analysis request from user {user.email}")
+        logger.info(f"Document: {len(request.document_text)} chars, {len(request.paragraphs)} paragraphs")
+
+        if not request.paragraphs:
+            raise HTTPException(
+                status_code=400,
+                detail="No paragraphs provided for analysis"
+            )
+
+        # Initialize analyzer with user's company policies
+        analyzer = ContractAnalyzer(company_id=user.company_id)
+
+        # Convert string paragraphs to the expected format
+        # Use original Word indices if provided, otherwise use array index
+        formatted_paragraphs = []
+        for idx, para in enumerate(request.paragraphs):
+            if para.strip():  # Skip empty paragraphs
+                # Use original Word index if available
+                word_index = request.paragraph_indices[idx] if request.paragraph_indices and idx < len(request.paragraph_indices) else idx
+                formatted_paragraphs.append({
+                    "text": para.strip(),
+                    "index": word_index,  # Use original Word paragraph index
+                    "style": "Normal",
+                    "is_heading": False
+                })
+
+        # Extract clauses from provided paragraphs
+        clauses = analyzer.clause_extractor.extract_clauses_from_paragraphs(
+            formatted_paragraphs
+        )
+
+        if not clauses:
+            raise HTTPException(
+                status_code=400,
+                detail="No analyzable clauses found in document"
+            )
+
+        logger.info(f"Extracted {len(clauses)} clauses for analysis")
+
+        # Run batch analysis (reusing existing logic)
+        if analyzer.batch_mode and len(clauses) > 0:
+            batch_result = analyzer.batch_analyzer.analyze_contract_batch(
+                contract_text=request.document_text,
+                clauses=clauses
+            )
+            analysis_results = batch_result["analysis_results"]
+        else:
+            # Single clause analysis fallback
+            classified_clauses = analyzer.clause_extractor.classify_all_clauses_sync(clauses)
+            analysis_results = []
+            for clause in classified_clauses:
+                result = analyzer.analyze_single_clause(clause)
+                analysis_results.append(result)
+
+        # Map results to paragraph indices
+        def find_paragraph_index(clause_text: str, paragraphs: List[str], word_indices: Optional[List[int]]) -> int:
+            """Find the Word paragraph index that contains the clause text."""
+            # Normalize for comparison
+            clause_normalized = clause_text.strip().lower()[:100]
+
+            for i, para in enumerate(paragraphs):
+                para_normalized = para.strip().lower()
+                if clause_normalized in para_normalized or para_normalized in clause_normalized:
+                    # Return the original Word index if available
+                    if word_indices and i < len(word_indices):
+                        return word_indices[i]
+                    return i
+
+            # If no direct match, try to find best match
+            best_match_idx = 0
+            best_match_score = 0
+
+            for i, para in enumerate(paragraphs):
+                # Count matching words
+                clause_words = set(clause_normalized.split())
+                para_words = set(para.strip().lower().split())
+                common_words = clause_words.intersection(para_words)
+                score = len(common_words)
+
+                if score > best_match_score:
+                    best_match_score = score
+                    best_match_idx = i
+
+            # Return the original Word index for the best match
+            if word_indices and best_match_idx < len(word_indices):
+                return word_indices[best_match_idx]
+            return best_match_idx
+
+        # Transform results for Word Add-in format
+        transformed_results = []
+        for idx, result in enumerate(analysis_results):
+            clause_text = result.get("text", result.get("clause_text", ""))
+            paragraph_index = find_paragraph_index(clause_text, request.paragraphs, request.paragraph_indices)
+
+            transformed = {
+                "clause_number": idx + 1,
+                "clause_text": clause_text,
+                "clause_type": result.get("type", result.get("clause_type", "Unknown")),
+                "paragraph_index": paragraph_index,
+                "compliance_status": "Compliant" if result.get("compliant", True) else "Non-Compliant",
+                "risk_level": result.get("risk_level", "Medium"),
+                "issues": result.get("issues", []),
+                "recommendations": result.get("recommendations", []),
+                "policy_references": result.get("policy_references", result.get("relevant_policies", [])),
+                "suggested_text": result.get("suggested_alternative", result.get("suggested_text"))
+            }
+            transformed_results.append(transformed)
+
+        # Generate summary
+        total_clauses = len(transformed_results)
+        compliant_count = sum(1 for r in transformed_results if r["compliance_status"] == "Compliant")
+        non_compliant_count = total_clauses - compliant_count
+
+        critical_count = sum(1 for r in transformed_results if r["risk_level"] == "Critical")
+        high_count = sum(1 for r in transformed_results if r["risk_level"] == "High")
+        medium_count = sum(1 for r in transformed_results if r["risk_level"] == "Medium")
+        low_count = sum(1 for r in transformed_results if r["risk_level"] == "Low")
+
+        compliance_rate = (compliant_count / total_clauses * 100) if total_clauses > 0 else 100
+
+        # Determine overall risk
+        if critical_count > 0:
+            overall_risk = "Critical"
+        elif high_count > 0:
+            overall_risk = "High"
+        elif medium_count > 0:
+            overall_risk = "Medium"
+        else:
+            overall_risk = "Low"
+
+        job_id = str(uuid.uuid4())
+
+        logger.info(f"Analysis complete: {compliant_count}/{total_clauses} compliant, overall risk: {overall_risk}")
+
+        return {
+            "job_id": job_id,
+            "status": "completed",
+            "analysis_results": transformed_results,
+            "summary": {
+                "total_clauses": total_clauses,
+                "compliant_clauses": compliant_count,
+                "non_compliant_clauses": non_compliant_count,
+                "critical_issues": critical_count,
+                "high_risk_issues": high_count,
+                "medium_risk_issues": medium_count,
+                "low_risk_issues": low_count,
+                "compliance_rate": compliance_rate,
+                "overall_risk": overall_risk
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Word Add-in analysis error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Analysis failed: {str(e)}"
+        )
+
+
 # ===== WebSocket Endpoint =====
 
 @app.websocket("/ws/negotiations/{negotiation_id}")
@@ -2053,6 +2845,385 @@ async def websocket_negotiation(
     finally:
         # Disconnect
         await ws_manager.disconnect(negotiation_id, user.id)
+
+
+# ===== WebSocket Endpoint for Document Sync =====
+
+@app.websocket("/ws/documents/{document_id}")
+async def websocket_document_sync(
+    websocket: WebSocket,
+    document_id: str
+):
+    """
+    WebSocket endpoint for real-time document synchronization using Yjs.
+
+    Args:
+        websocket: WebSocket connection
+        document_id: ID of the document to sync
+
+    Protocol:
+        - Clients send Yjs updates as binary messages
+        - Server broadcasts updates to all other connected clients
+        - Server periodically persists state to database
+    """
+    # MUST accept the WebSocket connection FIRST
+    await websocket.accept()
+
+    try:
+        # Get database session manually
+        db = next(get_db())
+
+        # Get user_id from query params
+        user_id = websocket.query_params.get("userId")
+        if not user_id:
+            logger.warning(f"WebSocket connection rejected: No userId in query params")
+            await websocket.close(code=1008, reason="userId required")
+            return
+
+        # Validate user AFTER accepting connection
+        auth_service = AuthService(db)
+        user = db.query(DBUser).filter(DBUser.id == user_id).first()
+        if not user:
+            logger.warning(f"WebSocket connection rejected: User {user_id} not found")
+            await websocket.close(code=1008, reason="User not found")
+            return
+
+        # Check document access
+        document_service = DocumentService(db)
+        if not document_service.can_user_access(document_id, user_id):
+            logger.warning(f"WebSocket connection rejected: User {user_id} denied access to document {document_id}")
+            await websocket.close(code=1008, reason="Access denied")
+            return
+
+        logger.info(f"WebSocket connected: User {user_id} ({user.email}) to document {document_id}")
+
+        # Connect to document room
+        await document_sync_service.connect(websocket, document_id, user_id)
+
+        # Notify other users
+        await document_sync_service.send_user_joined(
+            document_id, user_id, user.email
+        )
+
+        try:
+            while True:
+                # Receive Yjs update from client
+                message = await websocket.receive_bytes()
+
+                # Handle the update
+                await document_sync_service.handle_client_message(
+                    websocket, document_id, user_id, message
+                )
+
+        except WebSocketDisconnect:
+            logger.info(f"Document sync disconnected for user {user_id} in document {document_id}")
+        except Exception as e:
+            logger.error(f"Document sync error for user {user_id}: {str(e)}")
+        finally:
+            # Disconnect and notify others
+            document_sync_service.disconnect(websocket, document_id, user_id)
+            await document_sync_service.send_user_left(document_id, user_id)
+
+            # Persist current state before disconnect
+            await document_sync_service.persist_state(document_id, db)
+
+            # Close database session
+            db.close()
+
+    except Exception as e:
+        logger.error(f"WebSocket connection error: {e}")
+        try:
+            await websocket.close(code=1011, reason="Internal server error")
+        except:
+            pass
+        finally:
+            # Ensure db is closed even on error
+            try:
+                db.close()
+            except:
+                pass
+
+
+@app.websocket("/ws/collab/{document_id}")
+async def websocket_collaboration(
+    websocket: WebSocket,
+    document_id: str
+):
+    """
+    WebSocket endpoint for real-time collaborative editing using pycrdt-websocket.
+
+    This endpoint provides Y.js-based collaborative editing with automatic
+    conflict resolution via CRDTs.
+
+    Args:
+        websocket: WebSocket connection
+        document_id: ID of the document to collaborate on
+
+    Query Parameters:
+        userId: User ID for authentication and awareness
+        token: Optional JWT token (for future auth)
+
+    Protocol:
+        - Uses Y.js sync protocol (handled by pycrdt-websocket)
+        - Binary messages containing Y.js updates
+        - Automatic conflict resolution via CRDT
+    """
+    # MUST accept the WebSocket connection FIRST
+    await websocket.accept()
+
+    try:
+        # Get database session manually
+        db = next(get_db())
+
+        # Get user_id from query params
+        user_id = websocket.query_params.get("userId")
+        if not user_id:
+            logger.warning(f"Collaboration WebSocket rejected: No userId in query params")
+            await websocket.close(code=1008, reason="userId required")
+            return
+
+        # Validate user AFTER accepting connection
+        user = db.query(DBUser).filter(DBUser.id == user_id).first()
+        if not user:
+            logger.warning(f"Collaboration WebSocket rejected: User {user_id} not found")
+            await websocket.close(code=1008, reason="User not found")
+            return
+
+        # Check document access
+        document_service = DocumentService(db)
+        if not document_service.can_user_access(document_id, user_id):
+            logger.warning(f"Collaboration WebSocket rejected: User {user_id} denied access to document {document_id}")
+            await websocket.close(code=1008, reason="Access denied")
+            return
+
+        logger.info(f"Collaboration WebSocket connected: User {user_id} ({user.email}) to document {document_id}")
+
+        # Load any persisted state for this document
+        document = db.query(Document).filter(Document.id == document_id).first()
+        if document and hasattr(document, 'yjs_state_vector') and document.yjs_state_vector:
+            import base64
+            try:
+                state_bytes = base64.b64decode(document.yjs_state_vector)
+                await collab_ws_manager.collab_service.load_document_state(document_id, state_bytes)
+                logger.info(f"Loaded persisted state for document {document_id}")
+            except Exception as e:
+                logger.error(f"Failed to load persisted state: {e}")
+
+        try:
+            # Handle the collaboration connection
+            await collab_ws_manager.handle_connection(
+                websocket, document_id, user_id, user.email
+            )
+        finally:
+            # Persist state on disconnect
+            try:
+                state_b64 = collab_ws_manager.collab_service.get_document_state_base64(document_id)
+                if state_b64 and document:
+                    document.yjs_state_vector = state_b64
+                    document.updated_at = datetime.now()
+                    db.commit()
+                    logger.info(f"Persisted collaboration state for document {document_id}")
+            except Exception as e:
+                logger.error(f"Failed to persist collaboration state: {e}")
+
+            db.close()
+
+    except Exception as e:
+        logger.error(f"Collaboration WebSocket error: {e}")
+        try:
+            await websocket.close(code=1011, reason="Internal server error")
+        except:
+            pass
+        finally:
+            try:
+                db.close()
+            except:
+                pass
+
+
+@app.get("/api/documents/{document_id}/collaborators")
+async def get_document_collaborators(
+    document_id: str,
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Get list of currently active collaborators on a document.
+
+    Returns awareness state including user info, cursor positions, and selections.
+    """
+    awareness = collab_ws_manager.get_awareness_for_document(document_id)
+    return {
+        "document_id": document_id,
+        "collaborators": list(awareness.values()),
+        "count": len(awareness)
+    }
+
+
+@app.get("/api/collab/rooms")
+async def get_active_collaboration_rooms():
+    """
+    Get all active collaboration rooms (for debugging/monitoring).
+
+    Returns list of room IDs and their client counts.
+    """
+    rooms = collab_ws_manager.get_active_rooms()
+    return {
+        "rooms": rooms,
+        "total_rooms": len(rooms),
+        "total_clients": sum(rooms.values())
+    }
+
+
+# ==================== HocusPocus Integration Endpoints ====================
+
+@app.get("/api/documents/{document_id}/yjs-state")
+async def get_document_yjs_state(
+    document_id: str,
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Get Y.js state for a document (used by HocusPocus for persistence).
+
+    Returns base64-encoded Y.js state vector.
+    """
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return {
+        "document_id": document_id,
+        "state": document.yjs_state_vector if hasattr(document, 'yjs_state_vector') else None
+    }
+
+
+@app.put("/api/documents/{document_id}/yjs-state")
+async def update_document_yjs_state(
+    document_id: str,
+    state_data: dict,
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Update Y.js state for a document (used by HocusPocus for persistence).
+
+    Accepts base64-encoded Y.js state vector.
+    """
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    state = state_data.get("state")
+    if state and hasattr(document, 'yjs_state_vector'):
+        document.yjs_state_vector = state
+        document.updated_at = datetime.now()
+        db.commit()
+        logger.info(f"Updated Y.js state for document {document_id}")
+
+    return {
+        "document_id": document_id,
+        "status": "updated"
+    }
+
+
+@app.get("/api/documents/{document_id}/docx-binary")
+async def get_document_docx_binary(
+    document_id: str,
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Get the original DOCX file for a document (internal endpoint for collaboration server).
+
+    This endpoint is used by the collaboration server to initialize Y.js state
+    with the DOCX binary. No user authentication required as this is server-to-server.
+    """
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if not document.original_file_path:
+        raise HTTPException(status_code=404, detail="No DOCX file available for this document")
+
+    # Read the file
+    file_path = document.original_file_path
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="DOCX file not found on disk")
+
+    # Return as binary response
+    with open(file_path, "rb") as f:
+        content = f.read()
+
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f"attachment; filename={document.title}.docx"
+        }
+    )
+
+
+@app.post("/api/documents/{document_id}/enable-collaboration")
+async def enable_document_collaboration(
+    document_id: str,
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Enable collaboration for a document by creating an initial Y.js state marker.
+
+    This creates a minimal Y.js state that signals collaboration is enabled.
+    The first client to connect will initialize the actual document data.
+    """
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Check if user has access
+    document_service = DocumentService(db)
+    if not document_service.can_user_access(document_id, user.id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Create a minimal Y.js state marker (just 'COLLAB_ENABLED' as base64)
+    # This is enough to pass the length > 10 check and signal collaboration is enabled
+    collaboration_marker = "Q09MTEJJX0VOQUJMRUQ="  # Base64 of 'COLLAB_ENABLED'
+
+    if hasattr(document, 'yjs_state_vector'):
+        document.yjs_state_vector = collaboration_marker
+        document.updated_at = datetime.now()
+        db.commit()
+        logger.info(f"Enabled collaboration for document {document_id}")
+
+    return {
+        "document_id": document_id,
+        "status": "collaboration_enabled"
+    }
+
+
+@app.get("/api/documents/{document_id}/access")
+async def check_document_access(
+    document_id: str,
+    userId: str,
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Check if a user has access to a document (used by HocusPocus for auth).
+
+    Returns user info if access is granted.
+    """
+    # Check if user exists
+    user = db.query(DBUser).filter(DBUser.id == userId).first()
+    if not user:
+        raise HTTPException(status_code=403, detail="User not found")
+
+    # Check document access
+    document_service = DocumentService(db)
+    if not document_service.can_user_access(document_id, userId):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return {
+        "document_id": document_id,
+        "user_id": userId,
+        "user_email": user.email,
+        "access": True
+    }
 
 
 if __name__ == "__main__":

@@ -10,6 +10,12 @@ import type {
   CreateNegotiationRequest,
   NegotiationListResponse,
   MessageListResponse,
+  Document,
+  CreateDocumentRequest,
+  UpdateDocumentRequest,
+  DocumentListResponse,
+  DocumentCollaborator,
+  AddCollaboratorRequest,
 } from "./types";
 
 // Get API URL from environment variable with fallback
@@ -393,6 +399,208 @@ export const negotiationApi = {
       await api.patch(`/api/negotiations/${negotiationId}/messages/read`, {
         message_ids: messageIds,
       });
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+};
+
+// Document API
+export const documentApi = {
+  // Create a new document
+  async createDocument(
+    request: CreateDocumentRequest
+  ): Promise<Document> {
+    try {
+      const response = await api.post<Document>("/api/documents", request);
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Get all user's documents
+  async listDocuments(
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<DocumentListResponse> {
+    try {
+      const response = await api.get<DocumentListResponse>("/api/documents", {
+        params: { limit, offset },
+      });
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Get document by ID
+  async getDocument(documentId: string): Promise<Document> {
+    try {
+      const response = await api.get<Document>(`/api/documents/${documentId}`);
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Update document
+  async updateDocument(
+    documentId: string,
+    request: UpdateDocumentRequest
+  ): Promise<Document> {
+    try {
+      const response = await api.patch<Document>(
+        `/api/documents/${documentId}`,
+        request
+      );
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Delete document
+  async deleteDocument(documentId: string): Promise<void> {
+    try {
+      await api.delete(`/api/documents/${documentId}`);
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Get collaborators for a document
+  async getCollaborators(
+    documentId: string
+  ): Promise<DocumentCollaborator[]> {
+    try {
+      const response = await api.get<{ collaborators: DocumentCollaborator[] }>(
+        `/api/documents/${documentId}/collaborators`
+      );
+      return response.data.collaborators;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Add collaborator to a document
+  async addCollaborator(
+    documentId: string,
+    request: AddCollaboratorRequest
+  ): Promise<DocumentCollaborator> {
+    try {
+      const response = await api.post<{ success: boolean; collaborator: DocumentCollaborator }>(
+        `/api/documents/${documentId}/collaborators`,
+        request
+      );
+      return response.data.collaborator;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Import DOCX file
+  async importDocx(
+    file: File,
+    options?: {
+      title?: string;
+      importSource?: "original" | "ai_redlined";
+      negotiationId?: string;
+      analysisJobId?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    document_id: string;
+    html: string;
+    track_changes: any[];
+    metadata: any;
+  }> {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      if (options?.title) formData.append("title", options.title);
+      if (options?.importSource) formData.append("import_source", options.importSource);
+      if (options?.negotiationId) formData.append("negotiation_id", options.negotiationId);
+      if (options?.analysisJobId) formData.append("analysis_job_id", options.analysisJobId);
+
+      const response = await api.post("/api/documents/import-docx", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Download original DOCX file
+  async downloadOriginal(documentId: string): Promise<Blob> {
+    try {
+      const response = await api.get(`/api/documents/${documentId}/original`, {
+        responseType: "blob",
+      });
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Update document content with DOCX file (for SuperDoc)
+  async updateDocumentContent(
+    documentId: string,
+    formData: FormData
+  ): Promise<Document> {
+    try {
+      const response = await api.post<Document>(
+        `/api/documents/${documentId}/content`,
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Get track changes for a document
+  async getTrackChanges(documentId: string): Promise<any[]> {
+    try {
+      const response = await api.get<{ success: boolean; changes: any[] }>(
+        `/api/documents/${documentId}/track-changes`
+      );
+      return response.data.changes;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Check if Y.js collaboration state exists for a document
+  async hasCollaborationState(documentId: string): Promise<boolean> {
+    try {
+      const response = await api.get<{ document_id: string; state: string | null }>(
+        `/api/documents/${documentId}/yjs-state`
+      );
+      // State exists if it's a non-empty string longer than 10 chars (minimal Y.js state)
+      return !!(response.data.state && response.data.state.length > 10);
+    } catch (error) {
+      // If error, assume no state exists
+      return false;
+    }
+  },
+
+  // Enable collaboration for a document
+  async enableCollaboration(documentId: string): Promise<{ status: string }> {
+    try {
+      const response = await api.post<{ document_id: string; status: string }>(
+        `/api/documents/${documentId}/enable-collaboration`
+      );
+      return { status: response.data.status };
     } catch (error) {
       handleApiError(error);
     }

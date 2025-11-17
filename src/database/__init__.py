@@ -1,7 +1,10 @@
 """Database package for persistent storage."""
 
 from .database import Base, engine, SessionLocal, get_db, init_db
-from .models import User, Session, AnalysisJob, Negotiation, NegotiationMessage
+from .models import (
+    User, Session, AnalysisJob, Negotiation, NegotiationMessage,
+    Document, DocumentVersion, DocumentComment, DocumentChange, DocumentCollaborator
+)
 
 __all__ = [
     "Base",
@@ -14,4 +17,9 @@ __all__ = [
     "AnalysisJob",
     "Negotiation",
     "NegotiationMessage",
+    "Document",
+    "DocumentVersion",
+    "DocumentComment",
+    "DocumentChange",
+    "DocumentCollaborator",
 ]

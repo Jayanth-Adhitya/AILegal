@@ -1,0 +1,157 @@
+/* SuperDoc Editor UI Overrides */
+
+/* Toolbar styling to match our theme */
+#superdoc-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+}
+
+/* Remove default border from SuperDoc container */
+.superdoc-editor-container {
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+/* Custom scrollbar for document area */
+.overflow-y-auto::-webkit-scrollbar {
+  width: 10px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 5px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 5px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Ensure SuperDoc fills its container properly */
+.superdoc-wrapper {
+  width: 100%;
+  min-height: 100%;
+}
+
+/* Mode indicator styling */
+[data-mode="editing"] .mode-indicator {
+  color: #2563eb;
+}
+
+[data-mode="suggesting"] .mode-indicator {
+  color: #d97706;
+}
+
+[data-mode="viewing"] .mode-indicator {
+  color: #6b7280;
+}
+
+/* Document page appearance */
+.superdoc-page {
+  background: white;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  margin: 0 auto;
+}
+
+/* Toolbar button hover effects */
+.superdoc-toolbar button:hover {
+  background-color: #e5e7eb;
+  border-radius: 4px;
+}
+
+.superdoc-toolbar button.active {
+  background-color: #dbeafe;
+  color: #2563eb;
+}
+
+/* Dropdown menus in toolbar */
+.superdoc-toolbar select {
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 14px;
+  background: white;
+}
+
+.superdoc-toolbar select:hover {
+  border-color: #9ca3af;
+}
+
+.superdoc-toolbar select:focus {
+  outline: none;
+  border-color: #2563eb;
+  ring: 2px solid #dbeafe;
+}
+
+/* Loading state styling */
+.superdoc-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  background: #f9fafb;
+}
+
+/* Error state styling */
+.superdoc-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+
+/* Collaboration awareness cursors (for future) */
+.superdoc-cursor {
+  position: absolute;
+  pointer-events: none;
+}
+
+.superdoc-cursor-label {
+  background: var(--cursor-color);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Track changes highlighting */
+.superdoc-insertion {
+  background-color: #dcfce7;
+  text-decoration: underline;
+}
+
+.superdoc-deletion {
+  background-color: #fee2e2;
+  text-decoration: line-through;
+}
+
+/* Comments panel placeholder (for future) */
+.superdoc-comments-panel {
+  width: 300px;
+  background: white;
+  border-left: 1px solid #e5e7eb;
+  overflow-y: auto;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+  .max-w-5xl {
+    max-width: 100%;
+    padding: 0 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  #superdoc-toolbar {
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+}

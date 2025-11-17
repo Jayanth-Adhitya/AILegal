@@ -14,6 +14,7 @@ import {
   UserPlus,
   Building2,
   MessageSquare,
+  FileEdit,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -29,6 +30,11 @@ const navigation = [
     name: "Negotiations",
     href: "/negotiations",
     icon: MessageSquare,
+  },
+  {
+    name: "Documents",
+    href: "/documents",
+    icon: FileEdit,
   },
   {
     name: "Policies",

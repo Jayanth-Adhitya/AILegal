@@ -178,8 +178,211 @@ class NegotiationMessage(Base):
         }
 
 
+# ===== Document Editor Models =====
+
+class Document(Base):
+    """Collaborative document model for contract editing."""
+
+    __tablename__ = "documents"
+
+    id = Column(String, primary_key=True)
+    title = Column(String, nullable=False)
+    negotiation_id = Column(String, ForeignKey("negotiations.id", ondelete="CASCADE"), nullable=True, index=True)
+    analysis_job_id = Column(String, ForeignKey("analysis_jobs.job_id", ondelete="SET NULL"), nullable=True, index=True)
+    created_by_user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, index=True)
+    yjs_state_vector = Column(Text, nullable=True)  # Store as base64-encoded string
+    status = Column(String, default='draft', nullable=False)  # draft, under_review, finalized
+    import_source = Column(String, nullable=True)  # NULL, 'original', 'ai_redlined'
+
+    # DOCX file storage fields
+    original_file_path = Column(String, nullable=True)  # Path to original DOCX file
+    original_file_name = Column(String, nullable=True)  # Original filename
+    original_file_size = Column(Integer, nullable=True)  # File size in bytes
+    lexical_state = Column(Text, nullable=True)  # Lexical JSON editor state
+
+    # Relationships
+    negotiation = relationship("Negotiation", foreign_keys=[negotiation_id])
+    analysis_job = relationship("AnalysisJob", foreign_keys=[analysis_job_id])
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    versions = relationship("DocumentVersion", back_populates="document", cascade="all, delete-orphan", order_by="DocumentVersion.version_number.desc()")
+    comments = relationship("DocumentComment", back_populates="document", cascade="all, delete-orphan", order_by="DocumentComment.created_at")
+    changes = relationship("DocumentChange", back_populates="document", cascade="all, delete-orphan", order_by="DocumentChange.created_at")
+    collaborators = relationship("DocumentCollaborator", back_populates="document", cascade="all, delete-orphan")
+
+    def to_dict(self):
+        """Convert document to dictionary."""
+        return {
+            "id": self.id,
+            "title": self.title,
+            "negotiation_id": self.negotiation_id,
+            "analysis_job_id": self.analysis_job_id,
+            "created_by_user_id": self.created_by_user_id,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "lexical_state": self.lexical_state,  # Initial content (HTML or Lexical JSON)
+            "yjs_state_vector": self.yjs_state_vector,  # Yjs binary data (base64)
+            "status": self.status,
+            "import_source": self.import_source,
+            "original_file_path": self.original_file_path,  # Path to DOCX file (for SuperDoc)
+            "original_file_name": self.original_file_name,
+            "original_file_size": self.original_file_size,
+            "created_by": self.created_by.to_dict() if self.created_by else None,
+        }
+
+
+class DocumentVersion(Base):
+    """Document version snapshot."""
+
+    __tablename__ = "document_versions"
+
+    id = Column(String, primary_key=True)
+    document_id = Column(String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    version_number = Column(Integer, nullable=False)
+    yjs_state_vector = Column(Text, nullable=False)  # Full Yjs state at this version
+    snapshot_data = Column(Text, nullable=False)  # JSON metadata
+    created_by_user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+
+    # Relationships
+    document = relationship("Document", back_populates="versions")
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+
+    def to_dict(self):
+        """Convert version to dictionary."""
+        return {
+            "id": self.id,
+            "document_id": self.document_id,
+            "version_number": self.version_number,
+            "created_by_user_id": self.created_by_user_id,
+            "created_at": self.created_at.isoformat(),
+            "description": self.description,
+            "created_by": self.created_by.to_dict() if self.created_by else None,
+        }
+
+
+class DocumentComment(Base):
+    """Inline comment on document text."""
+
+    __tablename__ = "document_comments"
+
+    id = Column(String, primary_key=True)
+    document_id = Column(String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    parent_comment_id = Column(String, ForeignKey("document_comments.id", ondelete="CASCADE"), nullable=True, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    text_range_start = Column(Integer, nullable=False)
+    text_range_end = Column(Integer, nullable=False)
+    status = Column(String, default='open', nullable=False)  # open, resolved
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by_user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    # Relationships
+    document = relationship("Document", back_populates="comments")
+    parent_comment = relationship("DocumentComment", remote_side=[id], backref="replies")
+    user = relationship("User", foreign_keys=[user_id])
+    resolved_by = relationship("User", foreign_keys=[resolved_by_user_id])
+
+    def to_dict(self):
+        """Convert comment to dictionary."""
+        return {
+            "id": self.id,
+            "document_id": self.document_id,
+            "parent_comment_id": self.parent_comment_id,
+            "user_id": self.user_id,
+            "content": self.content,
+            "text_range_start": self.text_range_start,
+            "text_range_end": self.text_range_end,
+            "status": self.status,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+            "user": self.user.to_dict() if self.user else None,
+        }
+
+
+class DocumentChange(Base):
+    """Track changes audit trail."""
+
+    __tablename__ = "document_changes"
+
+    id = Column(String, primary_key=True)
+    document_id = Column(String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    change_type = Column(String, nullable=False)  # insert, delete, format
+    position = Column(Integer, nullable=False)
+    content = Column(Text, nullable=True)
+    change_metadata = Column(Text, nullable=True)  # JSON (renamed from metadata to avoid SQLAlchemy conflict)
+    created_at = Column(DateTime, default=datetime.now, nullable=False, index=True)
+    accepted_at = Column(DateTime, nullable=True)
+    accepted_by_user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+    rejected_by_user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    # Relationships
+    document = relationship("Document", back_populates="changes")
+    user = relationship("User", foreign_keys=[user_id])
+    accepted_by = relationship("User", foreign_keys=[accepted_by_user_id])
+    rejected_by = relationship("User", foreign_keys=[rejected_by_user_id])
+
+    def to_dict(self):
+        """Convert change to dictionary."""
+        return {
+            "id": self.id,
+            "document_id": self.document_id,
+            "user_id": self.user_id,
+            "change_type": self.change_type,
+            "position": self.position,
+            "content": self.content,
+            "created_at": self.created_at.isoformat(),
+            "accepted_at": self.accepted_at.isoformat() if self.accepted_at else None,
+            "rejected_at": self.rejected_at.isoformat() if self.rejected_at else None,
+            "user": self.user.to_dict() if self.user else None,
+        }
+
+
+class DocumentCollaborator(Base):
+    """Document access control."""
+
+    __tablename__ = "document_collaborators"
+
+    id = Column(String, primary_key=True)
+    document_id = Column(String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    permission = Column(String, default='edit', nullable=False)  # edit only for MVP
+    added_by_user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    added_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    # Relationships
+    document = relationship("Document", back_populates="collaborators")
+    user = relationship("User", foreign_keys=[user_id])
+    added_by = relationship("User", foreign_keys=[added_by_user_id])
+
+    def to_dict(self):
+        """Convert collaborator to dictionary."""
+        return {
+            "id": self.id,
+            "document_id": self.document_id,
+            "user_id": self.user_id,
+            "permission": self.permission,
+            "added_at": self.added_at.isoformat(),
+            "user": self.user.to_dict() if self.user else None,
+        }
+
+
 # Create indexes for common queries
 Index('idx_sessions_user_expires', Session.user_id, Session.expires_at)
 Index('idx_jobs_user_created', AnalysisJob.user_id, AnalysisJob.created_at.desc())
 Index('idx_negotiations_status', Negotiation.status, Negotiation.created_at.desc())
 Index('idx_messages_negotiation_created', NegotiationMessage.negotiation_id, NegotiationMessage.created_at)
+
+# Document indexes
+Index('idx_documents_created_by', Document.created_by_user_id, Document.created_at.desc())
+Index('idx_document_versions_doc_version', DocumentVersion.document_id, DocumentVersion.version_number)
+Index('idx_document_comments_doc', DocumentComment.document_id, DocumentComment.created_at)
+Index('idx_document_changes_doc', DocumentChange.document_id, DocumentChange.created_at)
+Index('idx_document_collaborators_doc_user', DocumentCollaborator.document_id, DocumentCollaborator.user_id)

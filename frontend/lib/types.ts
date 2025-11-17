@@ -222,3 +222,108 @@ export interface WebSocketMessage {
   read_at?: string;
   sender?: User;
 }
+
+// Document Types
+export interface Document {
+  id: string;
+  title: string;
+  negotiation_id?: string;
+  analysis_job_id?: string;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  yjs_state_vector?: string;
+  lexical_state?: string;
+  status: "draft" | "under_review" | "finalized";
+  import_source?: "original" | "ai_redlined" | null;
+  original_file_path?: string;
+  original_file_name?: string;
+  original_file_size?: number;
+  created_by?: User;
+  negotiation?: Negotiation;
+}
+
+export interface DocumentCollaborator {
+  id: string;
+  document_id: string;
+  user_id: string;
+  permission: "edit";
+  added_at: string;
+  added_by_user_id: string;
+  user?: User;
+  added_by?: User;
+}
+
+export interface DocumentVersion {
+  id: string;
+  document_id: string;
+  version_number: number;
+  yjs_state_vector: string;
+  snapshot_data: string;
+  created_by_user_id?: string;
+  created_at: string;
+  description?: string;
+  created_by?: User;
+}
+
+export interface DocumentComment {
+  id: string;
+  document_id: string;
+  parent_comment_id?: string;
+  user_id: string;
+  content: string;
+  text_range_start: number;
+  text_range_end: number;
+  status: "open" | "resolved";
+  created_at: string;
+  updated_at: string;
+  resolved_at?: string;
+  resolved_by_user_id?: string;
+  user?: User;
+  resolved_by?: User;
+  replies?: DocumentComment[];
+}
+
+export interface DocumentChange {
+  id: string;
+  document_id: string;
+  change_type: "insertion" | "deletion" | "formatting";
+  position: number;
+  content: string;
+  user_id: string;
+  created_at: string;
+  change_metadata?: string;
+  user?: User;
+}
+
+export interface CreateDocumentRequest {
+  title: string;
+  negotiation_id?: string;
+  analysis_job_id?: string;
+  import_source?: "original" | "ai_redlined" | null;
+}
+
+export interface UpdateDocumentRequest {
+  title?: string;
+  status?: "draft" | "under_review" | "finalized";
+  yjs_state_vector?: string;
+}
+
+export interface DocumentListResponse {
+  success: boolean;
+  documents: Document[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface AddCollaboratorRequest {
+  user_id: string;
+  permission: "edit" | "view";
+}
+
+export interface EditorConfig {
+  readOnly: boolean;
+  placeholder?: string;
+  onError?: (error: Error) => void;
+}
