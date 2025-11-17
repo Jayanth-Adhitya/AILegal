@@ -1,7 +1,11 @@
 version: '3.8'
 
-# Simplified docker-compose for Coolify with port 80 for easier routing
-# Use this if you're having issues with the standard docker-compose.yml
+# Coolify deployment - connects to Coolify's proxy network
+# Services communicate via service names (e.g., http://backend:8000)
+
+networks:
+  coolify:
+    external: true
 
 services:
   backend:
@@ -11,6 +15,8 @@ services:
     restart: unless-stopped
     expose:
       - "8000"
+    networks:
+      - coolify
     labels:
       - "traefik.enable=true"
       - "traefik.http.services.backend.loadbalancer.server.port=8000"
@@ -56,6 +62,8 @@ services:
     restart: unless-stopped
     expose:
       - "3001"
+    networks:
+      - coolify
     labels:
       - "traefik.enable=true"
       - "traefik.http.services.frontend.loadbalancer.server.port=3001"
@@ -80,8 +88,11 @@ services:
     restart: unless-stopped
     expose:
       - "1234"
+    networks:
+      - coolify
     labels:
       - "traefik.enable=true"
+      - "traefik.http.services.collaboration-server.loadbalancer.server.port=1234"
     environment:
       - NODE_ENV=production
       - COLLAB_PORT=1234
@@ -103,6 +114,8 @@ services:
     restart: unless-stopped
     expose:
       - "3001"
+    networks:
+      - coolify
     labels:
       - "traefik.enable=true"
       - "traefik.http.services.word-addin.loadbalancer.server.port=3001"
