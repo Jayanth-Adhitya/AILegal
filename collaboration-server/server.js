@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import fastifyWebsocket from '@fastify/websocket';
+import fastifyCors from '@fastify/cors';
 import { CollaborationBuilder } from '@superdoc-dev/superdoc-yjs-collaboration';
 import dotenv from 'dotenv';
 import * as Y from 'yjs';
@@ -11,6 +12,21 @@ const PORT = process.env.COLLAB_PORT || 1234;
 const FASTAPI_URL = process.env.FASTAPI_URL || 'http://localhost:8000';
 
 const fastify = Fastify({ logger: true });
+
+// Register CORS support for WebSocket upgrade requests
+await fastify.register(fastifyCors, {
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'https://localhost:3001',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:3001',
+    'https://ailegal.cirilla.ai',
+    'https://contracts.cirilla.ai',
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  credentials: true,
+});
 
 // Register WebSocket support
 await fastify.register(fastifyWebsocket);

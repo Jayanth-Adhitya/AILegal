@@ -92,6 +92,11 @@ services:
       - coolify
     labels:
       - "traefik.enable=true"
+      - "traefik.http.routers.collaboration-server.rule=Host(`collab.ailegal.cirilla.ai`)"
+      - "traefik.http.routers.collaboration-server.entrypoints=https"
+      - "traefik.http.routers.collaboration-server.tls=true"
+      - "traefik.http.routers.collaboration-server.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.collaboration-server.service=collaboration-server"
       - "traefik.http.services.collaboration-server.loadbalancer.server.port=1234"
     environment:
       - NODE_ENV=production
