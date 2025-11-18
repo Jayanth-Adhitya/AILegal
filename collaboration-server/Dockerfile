@@ -8,7 +8,7 @@ COPY package.json package-lock.json* ./
 
 # Install dependencies
 # Use npm install if package-lock.json doesn't exist, otherwise npm ci
-RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
+RUN if [ -f package-lock.json ]; then npm ci --production; else npm install --production; fi
 
 # Copy source code
 COPY . .
