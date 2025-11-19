@@ -98,9 +98,20 @@ export default function LandingPage() {
               {/* Brand Icon */}
               <motion.div
                 variants={heroText}
-                className="mb-8 flex h-20 w-20 items-center justify-center rounded-2xl glass-card"
+                className="mb-8 w-28 h-28 p-4 rounded-3xl backdrop-blur-xl bg-white/40 border border-white/30"
+                whileHover={{ scale: 1.05, rotate: 2 }}
+                transition={{ duration: 0.3 }}
+                style={{
+                  background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.5), rgba(254, 240, 138, 0.3))',
+                  boxShadow: '0 12px 48px 0 rgba(251, 191, 36, 0.2), inset 0 1px 0 0 rgba(255, 255, 255, 0.6)'
+                }}
               >
-                <Scale className="h-10 w-10 text-yellow-600" />
+                <img
+                  src="/assets/cirilla-logo.svg"
+                  alt="Cirilla Logo"
+                  className="w-full h-full object-contain"
+                  style={{ filter: 'drop-shadow(0 4px 8px rgba(251, 191, 36, 0.4))' }}
+                />
               </motion.div>
 
               {/* Main Heading */}
@@ -370,8 +381,19 @@ export default function LandingPage() {
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid gap-8 md:grid-cols-3">
             <div>
-              <div className="flex items-center gap-2 mb-4">
-                <Scale className="h-6 w-6 text-yellow-600" />
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-1.5 rounded-lg backdrop-blur-xl bg-white/30 border border-white/20"
+                     style={{
+                       background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.4), rgba(254, 240, 138, 0.2))',
+                       boxShadow: '0 4px 16px 0 rgba(251, 191, 36, 0.15), inset 0 1px 0 0 rgba(255, 255, 255, 0.5)'
+                     }}>
+                  <img
+                    src="/assets/cirilla-logo.svg"
+                    alt="Cirilla Logo"
+                    className="h-5 w-5 object-contain"
+                    style={{ filter: 'drop-shadow(0 1px 2px rgba(251, 191, 36, 0.3))' }}
+                  />
+                </div>
                 <span className="font-display font-bold text-xl text-gray-900">
                   Cirilla
                 </span>

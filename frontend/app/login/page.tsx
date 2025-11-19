@@ -55,11 +55,20 @@ export default function LoginPage() {
           <CardHeader className="space-y-1">
             <div className="flex items-center justify-center mb-4">
               <motion.div
-                className="p-3 bg-gradient-to-br from-yellow-200 to-yellow-300 rounded-full shadow-dual-md"
-                whileHover={{ scale: 1.05 }}
-                transition={{ duration: 0.2 }}
+                className="w-24 h-24 p-4 rounded-3xl backdrop-blur-xl bg-white/40 border border-white/30"
+                whileHover={{ scale: 1.1, rotate: 5 }}
+                transition={{ duration: 0.3, type: "spring" }}
+                style={{
+                  background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.5), rgba(254, 240, 138, 0.3))',
+                  boxShadow: '0 12px 48px 0 rgba(251, 191, 36, 0.25), inset 0 1px 0 0 rgba(255, 255, 255, 0.6)'
+                }}
               >
-                <Scale className="h-8 w-8 text-yellow-700" />
+                <img
+                  src="/assets/cirilla-logo.svg"
+                  alt="Cirilla Logo"
+                  className="w-full h-full object-contain"
+                  style={{ filter: 'drop-shadow(0 4px 6px rgba(251, 191, 36, 0.4))' }}
+                />
               </motion.div>
             </div>
             <CardTitle className="text-2xl font-bold text-center text-gray-900">Welcome back</CardTitle>

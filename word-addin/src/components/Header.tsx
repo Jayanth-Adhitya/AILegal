@@ -23,6 +23,11 @@ const useStyles = makeStyles({
     alignItems: 'center',
     gap: tokens.spacingHorizontalS,
   },
+  logoImage: {
+    width: '28px',
+    height: '28px',
+    objectFit: 'contain',
+  },
   userInfo: {
     display: 'flex',
     alignItems: 'center',
@@ -45,8 +50,13 @@ const Header: React.FC<HeaderProps> = ({ user, onLogout }) => {
   return (
     <header className={styles.header}>
       <div className={styles.logo}>
+        <img
+          src="/assets/logo.svg"
+          alt="Cirilla"
+          className={styles.logoImage}
+        />
         <Text weight="semibold" size={400}>
-          AI Legal Assistant
+          Cirilla
         </Text>
       </div>
 

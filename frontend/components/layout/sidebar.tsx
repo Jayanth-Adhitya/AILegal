@@ -66,9 +66,18 @@ export function Sidebar() {
   return (
     <div className="flex h-full w-64 flex-col bg-card shadow-dual-md">
       {/* Logo */}
-      <div className="flex h-16 items-center gap-2 px-6">
-        <div className="p-2 bg-gradient-to-br from-yellow-200 to-yellow-300 rounded-lg shadow-dual-sm">
-          <Scale className="h-6 w-6 text-yellow-700" />
+      <div className="flex h-16 items-center gap-3 px-6">
+        <div className="w-14 h-14 relative p-2 rounded-xl shadow-lg backdrop-blur-xl bg-white/30 border border-white/20"
+             style={{
+               background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.4), rgba(254, 240, 138, 0.2))',
+               boxShadow: '0 8px 32px 0 rgba(251, 191, 36, 0.15), inset 0 1px 0 0 rgba(255, 255, 255, 0.5)'
+             }}>
+          <img
+            src="/assets/cirilla-logo.svg"
+            alt="Cirilla Logo"
+            className="w-full h-full object-contain"
+            style={{ filter: 'drop-shadow(0 2px 4px rgba(251, 191, 36, 0.3))' }}
+          />
         </div>
         <div>
           <h1 className="text-lg font-bold text-gray-900">Cirilla</h1>
