@@ -2881,8 +2881,8 @@ async def get_document(
                 document_id=new_doc.id,
                 user_id=user.id,
                 permission="owner",
-                invited_at=datetime.now(),
-                accepted_at=datetime.now()
+                added_by_user_id=user.id,
+                added_at=datetime.now()
             )
             db.add(collaborator)
             db.commit()
