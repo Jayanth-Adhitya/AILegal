@@ -19,7 +19,17 @@
       "Bash(npm ls:*)",
       "WebFetch(domain:docs.superdoc.dev)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.reactbits.dev)",
+      "Bash(npm run build:*)",
+      "WebFetch(domain:coolify.io)",
+      "WebFetch(domain:doc.traefik.io)",
+      "Bash(openspec list:*)",
+      "Bash(openspec change show:*)",
+      "Bash(openspec validate:*)",
+      "Bash(cat:*)",
+      "Bash(openspec show:*)",
+      "Bash(nul)"
     ],
     "deny": [],
     "ask": []

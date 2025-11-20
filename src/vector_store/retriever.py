@@ -22,10 +22,17 @@ class PolicyRetriever:
             collection_name: Optional specific collection name to use
             company_id: Optional company ID to use for user-specific collection
         """
-        self.embeddings = GoogleGenerativeAIEmbeddings(
-            model=settings.embedding_model,
-            google_api_key=settings.google_api_key
-        )
+        # Initialize embedding model (local or API-based) - same as PolicyEmbeddings
+        if settings.use_local_embeddings:
+            from .embeddings import LocalEmbeddings
+            logger.info("🖥️  Using LOCAL embedding model for retrieval")
+            self.embeddings = LocalEmbeddings(settings.local_embedding_model)
+        else:
+            logger.info("☁️  Using Gemini API embedding model for retrieval")
+            self.embeddings = GoogleGenerativeAIEmbeddings(
+                model=settings.embedding_model,
+                google_api_key=settings.google_api_key
+            )
 
         self.chroma_client = chromadb.PersistentClient(
             path=settings.chroma_db_path,
@@ -215,6 +222,135 @@ class PolicyRetriever:
             )
 
         return "\n".join(formatted)
+
+    def retrieve_with_region(
+        self,
+        query: str,
+        region_code: Optional[str] = None,
+        n_results: int = None,
+        global_weight: float = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve policies with regional awareness.
+
+        Queries both global and regional collections, merges results by
+        weighted similarity score, and deduplicates.
+
+        Args:
+            query: Search query
+            region_code: Optional region (e.g., "dubai_uae"). If None, uses global only.
+            n_results: Total results to return (default from settings)
+            global_weight: Multiplier for global policy scores (default from settings)
+
+        Returns:
+            Merged and deduplicated results from global + regional collections.
+
+        Example:
+            >>> retriever = PolicyRetriever()
+            >>> policies = retriever.retrieve_with_region(
+            ...     "payment terms",
+            ...     region_code="dubai_uae",
+            ...     n_results=5
+            ... )
+        """
+        if n_results is None:
+            n_results = settings.retrieval_k
+
+        if global_weight is None:
+            from ..core.config import settings as config_settings
+            global_weight = config_settings.regional_global_weight
+
+        # Always query global collection
+        global_results = self.retrieve_relevant_policies(query, n_results=n_results)
+
+        # If no region specified, return global results only
+        if not region_code:
+            logger.debug(f"Retrieved {len(global_results)} global policies (no region)")
+            return global_results
+
+        # Query regional collection if available
+        try:
+            regional_collection_name = f"policies_{region_code}"
+            regional_collection = self.chroma_client.get_collection(name=regional_collection_name)
+
+            # Generate query embedding
+            query_embedding = self.embeddings.embed_query(query)
+
+            # Query regional collection
+            regional_query_results = regional_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=n_results,
+                include=["documents", "metadatas", "distances"]
+            )
+
+            # Format regional results
+            regional_results = []
+            for i in range(len(regional_query_results["documents"][0])):
+                regional_results.append({
+                    "content": regional_query_results["documents"][0][i],
+                    "metadata": regional_query_results["metadatas"][0][i],
+                    "similarity_score": 1 - regional_query_results["distances"][0][i],
+                    "distance": regional_query_results["distances"][0][i]
+                })
+
+            logger.debug(f"Retrieved {len(global_results)} global + {len(regional_results)} regional policies")
+
+            # Merge and deduplicate
+            merged_results = self._merge_results(global_results, regional_results, global_weight)
+            return merged_results[:n_results]
+
+        except Exception as e:
+            logger.warning(f"Failed to query regional collection for {region_code}: {e}")
+            logger.debug(f"Falling back to global-only results")
+            return global_results
+
+    def _merge_results(
+        self,
+        global_results: List[Dict[str, Any]],
+        regional_results: List[Dict[str, Any]],
+        global_weight: float
+    ) -> List[Dict[str, Any]]:
+        """
+        Merge and deduplicate results by weighted similarity score.
+
+        Args:
+            global_results: Results from global collection
+            regional_results: Results from regional collection
+            global_weight: Multiplier for global policy scores (prefer company policies)
+
+        Returns:
+            Merged, deduplicated, and sorted results.
+        """
+        # Apply weight to global results
+        for result in global_results:
+            result["weighted_score"] = result["similarity_score"] * global_weight
+            result["source_collection"] = "global"
+
+        # Regional results get unweighted score
+        for result in regional_results:
+            result["weighted_score"] = result["similarity_score"]
+            result["source_collection"] = result["metadata"].get("region", "regional")
+
+        # Combine all results
+        all_results = global_results + regional_results
+
+        # Sort by weighted score (descending)
+        all_results.sort(key=lambda x: x["weighted_score"], reverse=True)
+
+        # Deduplicate by content hash (first 200 characters)
+        seen_hashes = set()
+        deduplicated = []
+
+        for result in all_results:
+            content = result["content"]
+            content_hash = hash(content[:200] if len(content) >= 200 else content)
+
+            if content_hash not in seen_hashes:
+                seen_hashes.add(content_hash)
+                deduplicated.append(result)
+
+        logger.debug(f"Merged {len(all_results)} results → {len(deduplicated)} after deduplication")
+        return deduplicated
 
     def get_policy_by_exact_match(
         self,

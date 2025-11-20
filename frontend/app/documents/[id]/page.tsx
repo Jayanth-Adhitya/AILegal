@@ -94,32 +94,22 @@ export default function DocumentEditorPage() {
         hasCollabState
       );
 
-      // Check if this document has an original DOCX file
-      if (doc.original_file_path) {
+      // Always attempt to load DOCX file
+      // Backend will check original_file_path, analysis jobs, and stored content
+      console.log("[Document Load] Attempting to load DOCX file...");
+      try {
+        const blob = await documentApi.downloadOriginal(documentId);
+        setDocumentFile(blob);
         console.log(
-          "[Document Load] Loading DOCX file from:",
-          doc.original_file_path
+          "[Document Load] DOCX file loaded successfully, size:",
+          blob.size,
+          "type:",
+          blob.type
         );
-        // Fetch the original DOCX file
-        try {
-          const blob = await documentApi.downloadOriginal(documentId);
-          // The API already returns a Blob, no need to wrap it
-          setDocumentFile(blob);
-          console.log(
-            "[Document Load] DOCX file loaded, size:",
-            blob.size,
-            "type:",
-            blob.type
-          );
-        } catch (downloadError) {
-          console.error("Failed to download DOCX file:", downloadError);
-          // Create an empty document if download fails
-          setDocumentFile(null);
-        }
-      } else {
-        console.log(
-          "[Document Load] No DOCX file found, starting with empty editor"
-        );
+      } catch (downloadError) {
+        console.log("No DOCX file available, starting with empty editor");
+        console.error("Download error details:", downloadError);
+        // Start with empty document if download fails
         setDocumentFile(null);
       }
     } catch (error) {

@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FileText, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, Monitor, FileCode } from "lucide-react";
+import { FileText, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, Monitor, FileCode, Edit } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { API_BASE_URL } from "@/lib/api";
@@ -218,12 +218,14 @@ export function AnalysisHistory() {
       {analyses.map((analysis) => (
         <Card
           key={analysis.job_id}
-          className="hover:shadow-lg transition-shadow cursor-pointer"
-          onClick={() => router.push(`/results/${analysis.job_id}`)}
+          className="hover:shadow-lg transition-shadow"
         >
           <CardHeader>
             <div className="flex justify-between items-start">
-              <div className="flex-1">
+              <div
+                className="flex-1 cursor-pointer"
+                onClick={() => router.push(`/results/${analysis.job_id}`)}
+              >
                 <CardTitle className="text-lg flex items-center gap-2">
                   <FileText className="h-5 w-5" />
                   {analysis.filename}
@@ -261,6 +263,32 @@ export function AnalysisHistory() {
                     {analysis.summary.non_compliant_clauses || 0}
                   </p>
                 </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-2 mt-4 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push(`/results/${analysis.job_id}`)}
+                  className="flex-1"
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  View Results
+                </Button>
+                {analysis.status === "completed" && (
+                  <Button
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      router.push(`/documents/${analysis.job_id}`);
+                    }}
+                    className="flex-1"
+                  >
+                    <Edit className="h-4 w-4 mr-2" />
+                    Open in Editor
+                  </Button>
+                )}
               </div>
             </CardContent>
           )}

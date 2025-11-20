@@ -27,13 +27,14 @@ logger = logging.getLogger(__name__)
 class ContractAnalyzer:
     """Main contract analysis agent coordinating all components."""
 
-    def __init__(self, batch_mode: Optional[bool] = None, company_id: Optional[str] = None):
+    def __init__(self, batch_mode: Optional[bool] = None, company_id: Optional[str] = None, region_code: Optional[str] = None):
         """
         Initialize the contract analyzer.
 
         Args:
             batch_mode: Enable batch processing (default: from settings)
             company_id: Optional company ID for user-specific policy checking
+            region_code: Optional region code for regional knowledge base (e.g., "dubai_uae")
         """
         self.llm = ChatGoogleGenerativeAI(
             model=settings.gemini_model,
@@ -43,8 +44,9 @@ class ContractAnalyzer:
         )
 
         self.clause_extractor = ClauseExtractor()
-        self.policy_checker = PolicyChecker(company_id=company_id)
+        self.policy_checker = PolicyChecker(company_id=company_id, region_code=region_code)
         self.company_id = company_id
+        self.region_code = region_code
 
         # Batch mode configuration
         self.batch_mode = batch_mode if batch_mode is not None else settings.batch_mode

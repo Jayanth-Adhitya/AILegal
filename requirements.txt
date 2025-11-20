@@ -5,6 +5,7 @@ pydantic-settings>=2.3.0
 
 # Gemini & LangChain
 google-generativeai>=0.8.0
+google-api-core>=2.0.0
 langchain>=0.3.0,<0.4.0
 langchain-google-genai>=2.0.0
 langchain-community>=0.3.0
@@ -17,6 +18,15 @@ groq==0.33.0
 
 # Vector Store
 chromadb>=0.5.0
+
+# Local Embeddings (Optional - for offline/no-API-limit embeddings)
+sentence-transformers>=2.2.0  # Local embedding models (no API limits!)
+torch>=2.0.0  # Required for sentence-transformers
+transformers>=4.30.0  # HuggingFace models
+
+# Geolocation (for regional knowledge bases)
+geoip2>=4.0.0
+maxminddb>=2.0.0
 
 # Document Processing
 python-docx>=1.1.0

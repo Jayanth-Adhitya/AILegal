@@ -160,6 +160,12 @@ export const SuperDocEditor = forwardRef<SuperDocEditorRef, SuperDocEditorProps>
             throw new Error("SuperDoc class not found in module");
           }
 
+          // Fix for "superdoc is not defined" error
+          // SuperDoc library expects a global window.superdoc object
+          if (typeof window !== 'undefined' && !(window as any).superdoc) {
+            (window as any).superdoc = SuperDocModule;
+          }
+
           if (!mounted) return;
 
           // Wait a tick to ensure DOM is fully ready

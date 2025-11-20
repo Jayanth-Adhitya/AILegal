@@ -15,12 +15,13 @@ logger = logging.getLogger(__name__)
 class PolicyChecker:
     """Check contract clauses against company policies using RAG."""
 
-    def __init__(self, company_id: str = None):
+    def __init__(self, company_id: str = None, region_code: str = None):
         """
         Initialize policy checker with retriever and LLM.
 
         Args:
             company_id: Optional company ID for user-specific policy retrieval
+            region_code: Optional region code for regional knowledge base (e.g., "dubai_uae")
         """
         self.retriever = PolicyRetriever(company_id=company_id)
         self.llm = ChatGoogleGenerativeAI(
@@ -29,7 +30,8 @@ class PolicyChecker:
             temperature=settings.temperature
         )
         self.company_id = company_id
-        logger.info(f"Initialized PolicyChecker{' for company: ' + company_id if company_id else ''}")
+        self.region_code = region_code
+        logger.info(f"Initialized PolicyChecker{' for company: ' + company_id if company_id else ''}{' region: ' + region_code if region_code else ''}")
 
     async def generate_retrieval_queries(
         self,
@@ -121,38 +123,35 @@ class PolicyChecker:
             Dictionary with policies and laws
         """
         try:
-            if use_multi_query:
-                # Generate multiple queries
-                queries = self.generate_retrieval_queries_sync(clause_text, clause_type)
+            # Use regional-aware retrieval
+            # For simplicity, we use single region-aware query even in multi-query mode
+            # This provides both global and regional documents
+            all_policies = self.retriever.retrieve_with_region(
+                query=clause_text,
+                region_code=self.region_code,
+                n_results=settings.retrieval_k if not use_multi_query else settings.retrieval_k * 2
+            )
 
-                # Retrieve using multi-query
-                all_policies = self.retriever.retrieve_multi_query(
-                    queries=queries,
-                    n_results_per_query=2
-                )
-            else:
-                # Simple single query retrieval
-                all_policies = self.retriever.retrieve_relevant_policies(
-                    query=clause_text,
-                    n_results=settings.retrieval_k
-                )
-
-            # Separate policies and laws based on metadata
+            # Separate policies, laws, and regional documents based on metadata
             policies = []
             laws = []
+            regional_docs = []
 
             for policy in all_policies:
                 source_type = policy["metadata"].get("source_type", "policy")
-                if source_type == "law":
+                if source_type == "regional":
+                    regional_docs.append(policy)
+                elif source_type == "law":
                     laws.append(policy)
                 else:
                     policies.append(policy)
 
-            logger.info(f"Retrieved {len(policies)} policies and {len(laws)} laws")
+            logger.info(f"Retrieved {len(policies)} policies, {len(laws)} laws, and {len(regional_docs)} regional documents")
 
             return {
                 "policies": policies,
                 "laws": laws,
+                "regional_documents": regional_docs,
                 "all_documents": all_policies
             }
 

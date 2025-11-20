@@ -1,7 +1,7 @@
 """SQLAlchemy database models for persistent storage."""
 
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Index, Boolean, Integer
+from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Index, Boolean, Integer, LargeBinary
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -204,6 +204,28 @@ class Document(Base):
     original_file_size = Column(Integer, nullable=True)  # File size in bytes
     lexical_state = Column(Text, nullable=True)  # Lexical JSON editor state
 
+    # Document versioning fields (added for approval workflow)
+    version_number = Column(Integer, default=1, nullable=False)
+    edited_by = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    edited_at = Column(DateTime, nullable=True)
+    is_locked = Column(Boolean, default=False, nullable=False)
+    lock_reason = Column(String, nullable=True)  # e.g., 'signed', 'approved'
+
+    # Approval workflow fields
+    approval_status = Column(String, default='draft', nullable=False)  # draft, pending, approved, rejected
+    all_parties_approved = Column(Boolean, default=False, nullable=False)
+
+    # E-signature fields
+    signature_status = Column(String, default='not_required', nullable=False)  # not_required, pending_signatures, fully_signed
+    signatures_required = Column(Integer, default=0, nullable=False)
+    signatures_completed = Column(Integer, default=0, nullable=False)
+    fully_signed_at = Column(DateTime, nullable=True)
+
+    # Binary content storage for DOCX files
+    original_content = Column(Text, nullable=True)  # Base64 encoded original DOCX
+    redlined_content = Column(Text, nullable=True)  # Base64 encoded redlined DOCX
+    filename = Column(String, nullable=True)  # Display filename
+
     # Relationships
     negotiation = relationship("Negotiation", foreign_keys=[negotiation_id])
     analysis_job = relationship("AnalysisJob", foreign_keys=[analysis_job_id])
@@ -231,6 +253,24 @@ class Document(Base):
             "original_file_name": self.original_file_name,
             "original_file_size": self.original_file_size,
             "created_by": self.created_by.to_dict() if self.created_by else None,
+            # Document versioning fields
+            "version_number": self.version_number,
+            "edited_by": self.edited_by,
+            "edited_at": self.edited_at.isoformat() if self.edited_at else None,
+            "is_locked": self.is_locked,
+            "lock_reason": self.lock_reason,
+            # Approval workflow fields
+            "approval_status": self.approval_status,
+            "all_parties_approved": self.all_parties_approved,
+            # E-signature fields
+            "signature_status": self.signature_status,
+            "signatures_required": self.signatures_required,
+            "signatures_completed": self.signatures_completed,
+            "fully_signed_at": self.fully_signed_at.isoformat() if self.fully_signed_at else None,
+            # Content fields
+            "original_content": self.original_content,
+            "redlined_content": self.redlined_content,
+            "filename": self.filename,
         }
 
 

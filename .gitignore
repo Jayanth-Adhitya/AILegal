@@ -39,6 +39,9 @@ backups/
 # ChromaDB
 data/chroma_db/
 
+# GeoIP Database (large binary file, download separately)
+geolite2/*.mmdb
+
 # Uploads and Outputs
 data/uploads/*
 data/outputs/*

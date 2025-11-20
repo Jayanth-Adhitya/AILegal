@@ -33,14 +33,14 @@ export function PolicyUpload({ onUploadComplete }: PolicyUploadProps) {
     setDragActive(false);
 
     const droppedFiles = Array.from(e.dataTransfer.files).filter((file) =>
-      [".txt", ".md", ".pdf"].some((ext) => file.name.toLowerCase().endsWith(ext))
+      [".txt", ".md", ".pdf", ".docx"].some((ext) => file.name.toLowerCase().endsWith(ext))
     );
 
     if (droppedFiles.length > 0) {
       setFiles((prev) => [...prev, ...droppedFiles]);
       setError(null);
     } else {
-      setError("Please upload only TXT, MD, or PDF files");
+      setError("Please upload only TXT, MD, PDF, or DOCX files");
     }
   }, []);
 
@@ -92,12 +92,12 @@ export function PolicyUpload({ onUploadComplete }: PolicyUploadProps) {
             Drop policy files here, or click to browse
           </p>
           <p className="mt-2 text-xs text-gray-500">
-            Supports TXT, MD, and PDF files
+            Supports TXT, MD, PDF, and DOCX files
           </p>
           <input
             type="file"
             multiple
-            accept=".txt,.md,.pdf"
+            accept=".txt,.md,.pdf,.docx"
             onChange={handleFileInput}
             className="absolute inset-0 cursor-pointer opacity-0"
           />

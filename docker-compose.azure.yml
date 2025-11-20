@@ -1,51 +1,34 @@
 version: '3.8'
 
-# VPS Deployment for contract.cirilla.ai
-# This is separate from Azure deployment (contracts.cirilla.ai)
-# Assumes Traefik or Nginx proxy for SSL/domain routing
-
-networks:
-  legal-agent:
-    driver: bridge
+# Azure Container Apps deployment configuration
+# This configuration is optimized for Azure Container Apps
+# - Simplified networking (Azure handles ingress/routing)
+# - Azure Files for persistent storage
+# - Environment-based configuration
 
 services:
   backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    container_name: legal-agent-backend
     restart: unless-stopped
     ports:
       - "8000:8000"
-    networks:
-      - legal-agent
-    labels:
-      # Coolify/Traefik labels for domain routing
-      - "traefik.enable=true"
-      - "traefik.http.routers.backend.rule=Host(`api.contract.cirilla.ai`)"
-      - "traefik.http.routers.backend.entrypoints=websecure"
-      - "traefik.http.routers.backend.tls=true"
-      - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
-      - "traefik.http.services.backend.loadbalancer.server.port=8000"
     environment:
       # Google AI Configuration
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-models/gemini-embedding-001}
 
-      # Groq API (optional)
-      - GROQ_API_KEY=${GROQ_API_KEY:-}
-
-      # Storage Paths
+      # Storage Paths (Azure Files mounted at /app/data)
       - CHROMA_DB_PATH=/app/data/chroma_db
       - CHROMA_COLLECTION_NAME=${CHROMA_COLLECTION_NAME:-legal_policies}
       - UPLOAD_DIR=/app/data/uploads
       - OUTPUT_DIR=/app/data/outputs
       - POLICIES_DIR=/app/data/policies
-      - DATABASE_PATH=/app/data/legal_ai.db
 
-      # CORS Configuration
-      - CORS_ORIGINS=${CORS_ORIGINS}
+      # Database Configuration (SQLite with persistent storage)
+      - DATABASE_PATH=/app/data/legal_ai.db
 
       # API Configuration
       - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-50}
@@ -65,7 +48,12 @@ services:
       - MAX_BATCH_SIZE=${MAX_BATCH_SIZE:-50}
       - REQUESTS_PER_MINUTE=${REQUESTS_PER_MINUTE:-15}
       - REQUESTS_PER_DAY=${REQUESTS_PER_DAY:-250}
+
+      # Optional: Groq API for voice features
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
     volumes:
+      # Azure Files mount point for persistent storage
+      # This includes: ChromaDB, uploads, outputs, policies, AND SQLite database
       - backend_data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -79,24 +67,15 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       args:
+        # Build-time variables (Azure Container Apps URLs)
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
         - NEXT_PUBLIC_COLLAB_URL=${NEXT_PUBLIC_COLLAB_URL}
         - APP_PORT=3001
-    container_name: legal-agent-frontend
     restart: unless-stopped
     ports:
       - "3001:3001"
-    networks:
-      - legal-agent
-    labels:
-      # Coolify/Traefik labels for domain routing
-      - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(`contract.cirilla.ai`)"
-      - "traefik.http.routers.frontend.entrypoints=websecure"
-      - "traefik.http.routers.frontend.tls=true"
-      - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
-      - "traefik.http.services.frontend.loadbalancer.server.port=3001"
     environment:
+      # Runtime environment variables
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
       - NEXT_PUBLIC_COLLAB_URL=${NEXT_PUBLIC_COLLAB_URL}
       - PORT=3001
@@ -114,26 +93,13 @@ services:
     build:
       context: ./collaboration-server
       dockerfile: Dockerfile
-    container_name: legal-agent-collab
     restart: unless-stopped
-    expose:
-      - "1234"
-    networks:
-      - legal-agent
-    labels:
-      # Traefik labels (if using Traefik as reverse proxy)
-      - "traefik.enable=true"
-      - "traefik.http.routers.collab-http.rule=Host(`collab.contract.cirilla.ai`)"
-      - "traefik.http.routers.collab-http.entrypoints=web"
-      - "traefik.http.routers.collab-http.middlewares=redirect-to-https"
-      - "traefik.http.routers.collab-https.rule=Host(`collab.contract.cirilla.ai`)"
-      - "traefik.http.routers.collab-https.entrypoints=websecure"
-      - "traefik.http.routers.collab-https.tls=true"
-      - "traefik.http.routers.collab-https.tls.certresolver=letsencrypt"
-      - "traefik.http.services.collab.loadbalancer.server.port=1234"
+    ports:
+      - "1234:1234"
     environment:
       - NODE_ENV=production
       - COLLAB_PORT=1234
+      # Internal communication with backend
       - FASTAPI_URL=${FASTAPI_INTERNAL_URL:-http://backend:8000}
     depends_on:
       backend:
@@ -149,23 +115,9 @@ services:
     build:
       context: ./word-addin
       dockerfile: Dockerfile
-    container_name: legal-agent-word
     restart: unless-stopped
-    expose:
-      - "3001"
-    networks:
-      - legal-agent
-    labels:
-      # Traefik labels (if using Traefik as reverse proxy)
-      - "traefik.enable=true"
-      - "traefik.http.routers.word-http.rule=Host(`word.contract.cirilla.ai`)"
-      - "traefik.http.routers.word-http.entrypoints=web"
-      - "traefik.http.routers.word-http.middlewares=redirect-to-https"
-      - "traefik.http.routers.word-https.rule=Host(`word.contract.cirilla.ai`)"
-      - "traefik.http.routers.word-https.entrypoints=websecure"
-      - "traefik.http.routers.word-https.tls=true"
-      - "traefik.http.routers.word-https.tls.certresolver=letsencrypt"
-      - "traefik.http.services.word.loadbalancer.server.port=3001"
+    ports:
+      - "3002:3001"
     environment:
       - NODE_ENV=production
     depends_on:
@@ -180,4 +132,6 @@ services:
 
 volumes:
   backend_data:
+    # For local testing, this will be a Docker volume
+    # In Azure Container Apps, this will be mapped to Azure Files
     driver: local

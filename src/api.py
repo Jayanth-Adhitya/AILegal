@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form, Request, Response, Query, Header
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form, Request, Response, Query, Header, Body
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -190,10 +190,12 @@ async def startup_event():
             else:
                 logger.info(f"📚 Ingesting regional knowledge bases for: {', '.join(enabled_regions)}")
 
-                embeddings = PolicyEmbeddings()
+                # TEMPORARILY DISABLED DUE TO CHROMADB ERROR
+                # embeddings = PolicyEmbeddings()
                 total_chunks = 0
 
                 for region_code in enabled_regions:
+                    continue  # Skip vector store initialization temporarily
                     region_config = REGION_CONFIG[region_code]
                     data_directory = region_config["data_directory"]
 
@@ -458,28 +460,54 @@ async def register(
         )
 
         if result["success"]:
+            # Determine if we're in production (Azure) or local development
+            is_production = os.getenv("DEPLOYMENT_ENV") == "production" or os.getenv("WEBSITE_HOSTNAME")
+
             # Set session cookie (HttpOnly for security)
-            # Use domain=".cirilla.ai" to work across all subdomains
-            response.set_cookie(
-                key="session_id",
-                value=result["session_id"],
-                httponly=True,
-                secure=True,  # Require HTTPS
-                samesite="none",  # Allow cross-subdomain
-                domain=".cirilla.ai",  # Share across all *.cirilla.ai
-                max_age=7 * 24 * 60 * 60  # 7 days
-            )
+            cookie_params = {
+                "key": "session_id",
+                "value": result["session_id"],
+                "httponly": True,
+                "max_age": 7 * 24 * 60 * 60  # 7 days
+            }
+
+            if is_production:
+                # Production: Use secure cookies with domain for subdomains
+                cookie_params.update({
+                    "secure": True,
+                    "samesite": "none",
+                    "domain": ".cirilla.ai"
+                })
+            else:
+                # Local development: Use lax cookies without domain
+                cookie_params.update({
+                    "secure": False,
+                    "samesite": "lax"
+                })
+
+            response.set_cookie(**cookie_params)
 
             # Set WebSocket token cookie (non-HttpOnly so JS can read it)
-            response.set_cookie(
-                key="ws_token",
-                value=result["session_id"],
-                httponly=False,  # Allow JS access for WebSocket
-                secure=True,  # Require HTTPS
-                samesite="none",  # Allow cross-subdomain
-                domain=".cirilla.ai",  # Share across all *.cirilla.ai
-                max_age=7 * 24 * 60 * 60  # 7 days
-            )
+            ws_cookie_params = {
+                "key": "ws_token",
+                "value": result["session_id"],
+                "httponly": False,
+                "max_age": 7 * 24 * 60 * 60
+            }
+
+            if is_production:
+                ws_cookie_params.update({
+                    "secure": True,
+                    "samesite": "none",
+                    "domain": ".cirilla.ai"
+                })
+            else:
+                ws_cookie_params.update({
+                    "secure": False,
+                    "samesite": "lax"
+                })
+
+            response.set_cookie(**ws_cookie_params)
 
             return AuthResponse(
                 success=True,
@@ -512,28 +540,54 @@ async def login(
         )
 
         if result["success"]:
+            # Determine if we're in production (Azure) or local development
+            is_production = os.getenv("DEPLOYMENT_ENV") == "production" or os.getenv("WEBSITE_HOSTNAME")
+
             # Set session cookie (HttpOnly for security)
-            # Use domain=".cirilla.ai" to work across all subdomains
-            response.set_cookie(
-                key="session_id",
-                value=result["session_id"],
-                httponly=True,
-                secure=True,  # Require HTTPS
-                samesite="none",  # Allow cross-subdomain
-                domain=".cirilla.ai",  # Share across all *.cirilla.ai
-                max_age=7 * 24 * 60 * 60  # 7 days
-            )
+            cookie_params = {
+                "key": "session_id",
+                "value": result["session_id"],
+                "httponly": True,
+                "max_age": 7 * 24 * 60 * 60  # 7 days
+            }
+
+            if is_production:
+                # Production: Use secure cookies with domain for subdomains
+                cookie_params.update({
+                    "secure": True,
+                    "samesite": "none",
+                    "domain": ".cirilla.ai"
+                })
+            else:
+                # Local development: Use lax cookies without domain
+                cookie_params.update({
+                    "secure": False,
+                    "samesite": "lax"
+                })
+
+            response.set_cookie(**cookie_params)
 
             # Set WebSocket token cookie (non-HttpOnly so JS can read it)
-            response.set_cookie(
-                key="ws_token",
-                value=result["session_id"],
-                httponly=False,  # Allow JS access for WebSocket
-                secure=True,  # Require HTTPS
-                samesite="none",  # Allow cross-subdomain
-                domain=".cirilla.ai",  # Share across all *.cirilla.ai
-                max_age=7 * 24 * 60 * 60  # 7 days
-            )
+            ws_cookie_params = {
+                "key": "ws_token",
+                "value": result["session_id"],
+                "httponly": False,
+                "max_age": 7 * 24 * 60 * 60
+            }
+
+            if is_production:
+                ws_cookie_params.update({
+                    "secure": True,
+                    "samesite": "none",
+                    "domain": ".cirilla.ai"
+                })
+            else:
+                ws_cookie_params.update({
+                    "secure": False,
+                    "samesite": "lax"
+                })
+
+            response.set_cookie(**ws_cookie_params)
 
             return AuthResponse(
                 success=True,
@@ -2684,30 +2738,84 @@ async def list_documents(
 async def get_document(
     document_id: str,
     user: DBUser = Depends(require_auth),
-    document_service: DocumentService = Depends(get_document_service)
+    document_service: DocumentService = Depends(get_document_service),
+    db: DBSessionType = Depends(get_db)
 ):
     """
     Get document details.
 
     Args:
-        document_id: ID of the document
+        document_id: ID of the document or analysis job ID
         user: Authenticated user
         document_service: Document service instance
 
     Returns:
         Document data or error
     """
+    # First check if it's an AnalysisJob ID (to avoid permission errors)
+    job = db.query(DBAnalysisJob).filter(DBAnalysisJob.job_id == document_id).first()
+    if job:
+        # Check if user owns this job
+        if job.user_id != user.id:
+            raise HTTPException(status_code=403, detail="You do not have access to this document")
+
+        # Check if this job has an associated Document
+        existing_doc = db.query(Document).filter(Document.analysis_job_id == document_id).first()
+        if existing_doc:
+            # Return the existing document
+            return existing_doc.to_dict()
+        else:
+            # Create a real Document entry from the analysis job
+            from .database.models import DocumentCollaborator
+
+            new_doc = Document(
+                id=str(uuid.uuid4()),
+                title=job.filename,
+                analysis_job_id=job.job_id,
+                created_by_user_id=user.id,
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+                status="draft",
+                version_number=1,
+                approval_status="draft",
+                signature_status="not_required",
+                is_locked=False,
+                original_file_path=job.output_path if job.output_path and os.path.exists(job.output_path) else None,
+                original_file_name=job.filename
+            )
+            db.add(new_doc)
+            db.flush()  # Get the document ID
+
+            # Add user as a collaborator with owner permissions
+            collaborator = DocumentCollaborator(
+                id=str(uuid.uuid4()),
+                document_id=new_doc.id,
+                user_id=user.id,
+                permission="owner",
+                invited_at=datetime.now(),
+                accepted_at=datetime.now()
+            )
+            db.add(collaborator)
+            db.commit()
+
+            logger.info(f"Created Document {new_doc.id} from AnalysisJob {job.job_id}")
+
+            # Return the created document
+            return new_doc.to_dict()
+
+    # If not an AnalysisJob, try as a Document ID
     result = document_service.get_document(
         document_id=document_id,
         user_id=user.id
     )
 
-    if not result["success"]:
-        if result.get("error") == "Access denied":
-            raise HTTPException(status_code=403, detail="You do not have access to this document")
-        raise HTTPException(status_code=404, detail=result["error"])
+    if result["success"]:
+        return result["document"]
 
-    return result["document"]
+    # Neither Document nor AnalysisJob found
+    if result.get("error") == "Access denied":
+        raise HTTPException(status_code=403, detail="You do not have access to this document")
+    raise HTTPException(status_code=404, detail=result.get("error", "Document not found"))
 
 
 @app.patch("/api/documents/{document_id}")
@@ -2855,19 +2963,35 @@ async def update_document_content(
 async def get_collaborators(
     document_id: str,
     user: DBUser = Depends(require_auth),
-    document_service: DocumentService = Depends(get_document_service)
+    document_service: DocumentService = Depends(get_document_service),
+    db: DBSessionType = Depends(get_db)
 ):
     """
     Get list of collaborators for a document.
 
     Args:
-        document_id: ID of the document
+        document_id: ID of the document or analysis job ID
         user: Authenticated user
         document_service: Document service instance
+        db: Database session
 
     Returns:
         List of collaborators with user details
     """
+    # Check if it's an AnalysisJob ID and get the associated Document
+    job = db.query(DBAnalysisJob).filter(DBAnalysisJob.job_id == document_id).first()
+    if job:
+        if job.user_id != user.id:
+            raise HTTPException(status_code=403, detail="You do not have access to this document")
+
+        # Find the associated Document
+        doc = db.query(Document).filter(Document.analysis_job_id == document_id).first()
+        if doc:
+            document_id = doc.id  # Use the actual Document ID
+        else:
+            # Document hasn't been created yet, return empty collaborators list
+            return {"collaborators": []}
+
     result = document_service.get_collaborators(
         document_id=document_id,
         user_id=user.id
@@ -3056,10 +3180,11 @@ async def download_original_docx(
     db: DBSessionType = Depends(get_db)
 ):
     """
-    Download the original DOCX file for a document.
+    Download the DOCX file for a document (redlined if available, original otherwise).
+    For analysis jobs, returns the redlined version.
 
     Args:
-        document_id: ID of the document
+        document_id: ID of the document or analysis job ID
         user: Authenticated user
         document_service: Document service instance
         db: Database session
@@ -3067,6 +3192,46 @@ async def download_original_docx(
     Returns:
         DOCX file as download
     """
+    import base64
+    import tempfile
+
+    # First check if it's an AnalysisJob ID
+    job = db.query(DBAnalysisJob).filter(DBAnalysisJob.job_id == document_id).first()
+    if job:
+        # Check if user owns this job
+        if job.user_id != user.id:
+            raise HTTPException(status_code=403, detail="You do not have access to this document")
+
+        # Check if there's a Document entry with content
+        doc = db.query(Document).filter(Document.analysis_job_id == document_id).first()
+        if doc:
+            # Try to return redlined content first (base64 encoded)
+            if doc.redlined_content:
+                try:
+                    content = base64.b64decode(doc.redlined_content)
+                    # Write to temp file and return
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp:
+                        tmp.write(content)
+                        tmp_path = tmp.name
+                    return FileResponse(
+                        path=tmp_path,
+                        filename=doc.filename or job.filename or "document.docx",
+                        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+                except:
+                    pass  # Fall through to try other methods
+
+        # Load from job's output_path (redlined document)
+        if job.output_path and os.path.exists(job.output_path):
+            return FileResponse(
+                path=job.output_path,
+                filename=job.filename or "document.docx",
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+
+        raise HTTPException(status_code=404, detail="Document file not found")
+
+    # If not an AnalysisJob, try as Document ID
     # Check access
     if not document_service.can_user_access(document_id, user.id):
         raise HTTPException(status_code=403, detail="You do not have access to this document")
@@ -3076,19 +3241,30 @@ async def download_original_docx(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    if not doc.original_file_path:
-        raise HTTPException(status_code=404, detail="Original file not found")
+    # Try redlined content first (for documents that have been edited)
+    if doc.redlined_content:
+        try:
+            content = base64.b64decode(doc.redlined_content)
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+            return FileResponse(
+                path=tmp_path,
+                filename=doc.filename or doc.original_file_name or "document.docx",
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+        except:
+            pass  # Fall through to original_file_path
 
-    # Check if file exists
-    if not os.path.exists(doc.original_file_path):
-        raise HTTPException(status_code=404, detail="Original file not found on disk")
+    # Try original file path
+    if doc.original_file_path and os.path.exists(doc.original_file_path):
+        return FileResponse(
+            path=doc.original_file_path,
+            filename=doc.original_file_name or "document.docx",
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
 
-    # Return file
-    return FileResponse(
-        path=doc.original_file_path,
-        filename=doc.original_file_name or "document.docx",
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
+    raise HTTPException(status_code=404, detail="Document file not found")
 
 
 @app.get("/api/documents/{document_id}/track-changes")
@@ -3742,12 +3918,26 @@ async def get_document_yjs_state(
 ):
     """
     Get Y.js state for a document (used by HocusPocus for persistence).
+    Handles both Document IDs and AnalysisJob IDs.
 
     Returns base64-encoded Y.js state vector.
     """
-    document = db.query(Document).filter(Document.id == document_id).first()
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
+    # Check if it's an AnalysisJob ID
+    job = db.query(DBAnalysisJob).filter(DBAnalysisJob.job_id == document_id).first()
+    if job:
+        # Find the associated Document
+        document = db.query(Document).filter(Document.analysis_job_id == document_id).first()
+        if not document:
+            # No Document created yet, return null state
+            return {
+                "document_id": document_id,
+                "state": None
+            }
+    else:
+        # Try as regular Document ID
+        document = db.query(Document).filter(Document.id == document_id).first()
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
 
     return {
         "document_id": document_id,
@@ -3882,6 +4072,503 @@ async def check_document_access(
         "user_id": userId,
         "user_email": user.email,
         "access": True
+    }
+
+
+# ==================== Document Versioning Endpoints ====================
+
+@app.get("/api/documents/{document_id}/latest-version")
+async def get_latest_document_version(
+    document_id: str,
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """Get the latest version of a document for editing."""
+    # First, try to find as a Document
+    document = db.query(Document).filter(Document.id == document_id).first()
+
+    if document:
+        # Get latest content from Document
+        content = None
+        if document.redlined_content:
+            # Content is stored as base64 encoded string
+            import base64
+            try:
+                content = base64.b64decode(document.redlined_content)
+            except:
+                content = document.redlined_content  # In case it's already binary
+        elif document.original_content:
+            import base64
+            try:
+                content = base64.b64decode(document.original_content)
+            except:
+                content = document.original_content
+
+        if not content:
+            raise HTTPException(status_code=404, detail="No document content available")
+
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": f"attachment; filename={document.filename or 'document.docx'}"
+            }
+        )
+
+    # If not found as Document, check if it's an AnalysisJob ID
+    job = db.query(DBAnalysisJob).filter(DBAnalysisJob.job_id == document_id).first()
+    if job:
+        # Check if this job has an associated document
+        existing_doc = db.query(Document).filter(Document.analysis_job_id == document_id).first()
+        if existing_doc:
+            # Redirect to the existing document
+            if existing_doc.redlined_content:
+                content = existing_doc.redlined_content
+            elif existing_doc.original_content:
+                content = existing_doc.original_content
+            else:
+                # Try to load from file
+                if job.output_path and os.path.exists(job.output_path):
+                    with open(job.output_path, 'rb') as f:
+                        content = f.read()
+                else:
+                    raise HTTPException(status_code=404, detail="No document content available")
+        else:
+            # Load the redlined document from the analysis job
+            if job.output_path and os.path.exists(job.output_path):
+                with open(job.output_path, 'rb') as f:
+                    content = f.read()
+            else:
+                raise HTTPException(status_code=404, detail="No redlined document available for this analysis")
+
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": f"attachment; filename={job.filename or 'document.docx'}"
+            }
+        )
+
+    raise HTTPException(status_code=404, detail="Document not found")
+
+
+@app.post("/api/documents/{document_id}/save-version")
+async def save_document_version(
+    document_id: str,
+    file: UploadFile = File(...),
+    summary: str = Form(None),
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """Save a new version of a document."""
+    import hashlib
+    import base64
+
+    # Check if it's a Document or AnalysisJob
+    document = db.query(Document).filter(Document.id == document_id).first()
+
+    # If not found as Document, check if it's an AnalysisJob ID
+    if not document:
+        job = db.query(DBAnalysisJob).filter(DBAnalysisJob.job_id == document_id).first()
+        if job:
+            # Check if user owns this job
+            if job.user_id != user.id:
+                raise HTTPException(status_code=403, detail="Access denied")
+
+            # Check if a Document already exists for this job
+            document = db.query(Document).filter(Document.analysis_job_id == document_id).first()
+
+            if not document:
+                # Create a new Document from the AnalysisJob
+                document = Document(
+                    id=str(uuid.uuid4()),
+                    title=job.filename,
+                    filename=job.filename,
+                    analysis_job_id=job.job_id,
+                    created_by_user_id=user.id,
+                    created_at=datetime.now(),
+                    updated_at=datetime.now(),
+                    status="draft",
+                    version_number=1,
+                    approval_status="draft",
+                    signature_status="not_required",
+                    is_locked=False
+                )
+                db.add(document)
+                db.flush()  # Get the document ID without committing
+
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Check if document is locked
+    if document.is_locked:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Document is locked: {document.lock_reason}"
+        )
+
+    # Read file content
+    content = await file.read()
+    content_hash = hashlib.sha256(content).hexdigest()
+
+    # Update document - store as base64 encoded
+    document.redlined_content = base64.b64encode(content).decode('utf-8')
+    document.version_number = (document.version_number or 1) + 1
+    document.edited_by = user.id
+    document.edited_at = datetime.now()
+    document.updated_at = datetime.now()
+
+    # Create version record (if table exists)
+    # This would be done with the DocumentVersion model once defined
+
+    db.commit()
+
+    return {
+        "document_id": document.id,
+        "version": document.version_number,
+        "hash": content_hash,
+        "edited_by": user.email,
+        "summary": summary
+    }
+
+
+# ==================== Approval Workflow Endpoints ====================
+
+@app.post("/api/documents/{document_id}/approve")
+async def approve_document(
+    document_id: str,
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """Approve a document."""
+    # First check if it's an AnalysisJob ID
+    job = db.query(DBAnalysisJob).filter(DBAnalysisJob.job_id == document_id).first()
+    if job:
+        # Check if user owns this job
+        if job.user_id != user.id:
+            raise HTTPException(status_code=403, detail="You do not have access to this document")
+
+        # Check if this job has an associated Document, if not create one
+        document = db.query(Document).filter(Document.analysis_job_id == document_id).first()
+        if not document:
+            # Create a new Document from the AnalysisJob
+            document = Document(
+                id=str(uuid.uuid4()),
+                title=job.filename,
+                analysis_job_id=job.job_id,
+                created_by_user_id=user.id,
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+                status="draft",
+                version_number=1,
+                approval_status="approved",
+                signature_status="not_required",
+                is_locked=False
+            )
+            db.add(document)
+        else:
+            document.approval_status = "approved"
+
+        db.commit()
+        logger.info(f"Document {document.id} (from job {document_id}) approved by {user.email}")
+
+        return {
+            "document_id": document.id,
+            "status": "approved",
+            "approved_by": user.email,
+            "approved_at": datetime.now().isoformat()
+        }
+
+    # If not an AnalysisJob, try as a Document ID
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # For now, simple approval tracking
+    document.approval_status = "approved"
+    db.commit()
+
+    logger.info(f"Document {document_id} approved by {user.email}")
+
+    return {
+        "document_id": document_id,
+        "status": "approved",
+        "approved_by": user.email,
+        "approved_at": datetime.now().isoformat()
+    }
+
+
+@app.post("/api/documents/{document_id}/reject")
+async def reject_document(
+    document_id: str,
+    comments: str = Form(...),
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """Reject a document with comments."""
+    # Check document exists
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Update status
+    document.approval_status = "rejected"
+    db.commit()
+
+    logger.info(f"Document {document_id} rejected by {user.email}: {comments}")
+
+    return {
+        "document_id": document_id,
+        "status": "rejected",
+        "rejected_by": user.email,
+        "comments": comments,
+        "rejected_at": datetime.now().isoformat()
+    }
+
+
+@app.get("/api/documents/{document_id}/approval-status")
+async def get_approval_status(
+    document_id: str,
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """Get the approval status of a document."""
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return {
+        "document_id": document_id,
+        "approval_status": document.approval_status or "pending",
+        "all_parties_approved": document.all_parties_approved or False
+    }
+
+
+# ==================== E-Signature Endpoints ====================
+
+class SignatureRequest(BaseModel):
+    """Request to sign a document."""
+    signature_data: str  # Base64 encoded signature image
+    signature_type: str  # 'drawn' or 'typed'
+    signer_name: str
+    position_data: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/documents/{document_id}/request-signatures")
+async def request_signatures(
+    document_id: str,
+    signers: List[Dict[str, str]] = Body(...),  # List of {email, name} dicts
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """Request signatures from specified signers."""
+    import secrets
+    import jwt
+    from datetime import timedelta
+
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Check if document is approved
+    if document.approval_status != "approved" and not document.all_parties_approved:
+        raise HTTPException(
+            status_code=400,
+            detail="Document must be approved before requesting signatures"
+        )
+
+    signing_links = []
+
+    for signer in signers:
+        # Create signing session with JWT token
+        token_payload = {
+            "document_id": document_id,
+            "email": signer["email"],
+            "name": signer["name"],
+            "exp": datetime.utcnow() + timedelta(hours=48)
+        }
+
+        # Use a secret key from settings (you should add this to settings)
+        token = jwt.encode(token_payload, "your-secret-key", algorithm="HS256")
+
+        # Generate signing URL
+        signing_url = f"{settings.frontend_url}/sign/{token}"
+
+        signing_links.append({
+            "email": signer["email"],
+            "name": signer["name"],
+            "signing_url": signing_url
+        })
+
+        # TODO: Send email with signing link
+        logger.info(f"Signature requested from {signer['email']} for document {document_id}")
+
+    # Update document status
+    document.signature_status = "pending_signatures"
+    document.signatures_required = len(signers)
+    db.commit()
+
+    return {
+        "document_id": document_id,
+        "signers": signing_links,
+        "expires_in": "48 hours"
+    }
+
+
+@app.post("/api/signatures/sign")
+async def submit_signature(
+    document_id: str = Form(...),
+    signature_request: SignatureRequest = Depends(),
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """Submit a signature for an authenticated user."""
+    import hashlib
+
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Calculate document hash
+    content = document.redlined_content or document.original_content
+    if content:
+        certificate_hash = hashlib.sha256(content).hexdigest()
+    else:
+        certificate_hash = "no-content"
+
+    # Record signature (would use Signature model once defined)
+    signature_data = {
+        "document_id": document_id,
+        "signer_id": user.id,
+        "signer_email": user.email,
+        "signer_name": signature_request.signer_name,
+        "signature_data": signature_request.signature_data,
+        "signature_type": signature_request.signature_type,
+        "certificate_hash": certificate_hash,
+        "signed_at": datetime.now().isoformat()
+    }
+
+    # Update document signature count
+    document.signatures_completed = (document.signatures_completed or 0) + 1
+    if document.signatures_completed >= document.signatures_required:
+        document.signature_status = "fully_signed"
+        document.fully_signed_at = datetime.now()
+        document.is_locked = True
+        document.lock_reason = "signed"
+
+    db.commit()
+
+    logger.info(f"Document {document_id} signed by {user.email}")
+
+    return {
+        "success": True,
+        "signature_id": str(uuid.uuid4()),
+        "certificate_hash": certificate_hash,
+        **signature_data
+    }
+
+
+@app.post("/api/signatures/sign-external")
+async def submit_external_signature(
+    token: str = Form(...),
+    signature_request: SignatureRequest = Depends(),
+    verification_code: str = Form(...),
+    db: DBSessionType = Depends(get_db)
+):
+    """Submit a signature for an external (non-authenticated) user."""
+    import jwt
+    import hashlib
+
+    # Verify JWT token
+    try:
+        payload = jwt.decode(token, "your-secret-key", algorithms=["HS256"])
+        document_id = payload["document_id"]
+        signer_email = payload["email"]
+        signer_name = payload["name"]
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="Signing link has expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=400, detail="Invalid signing link")
+
+    # TODO: Verify the verification code (would check against stored code)
+
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Calculate document hash
+    content = document.redlined_content or document.original_content
+    if content:
+        certificate_hash = hashlib.sha256(content).hexdigest()
+    else:
+        certificate_hash = "no-content"
+
+    # Record signature
+    signature_data = {
+        "document_id": document_id,
+        "signer_id": None,  # External signer
+        "signer_email": signer_email,
+        "signer_name": signature_request.signer_name or signer_name,
+        "signature_data": signature_request.signature_data,
+        "signature_type": signature_request.signature_type,
+        "certificate_hash": certificate_hash,
+        "signed_at": datetime.now().isoformat()
+    }
+
+    # Update document signature count
+    document.signatures_completed = (document.signatures_completed or 0) + 1
+    if document.signatures_completed >= document.signatures_required:
+        document.signature_status = "fully_signed"
+        document.fully_signed_at = datetime.now()
+        document.is_locked = True
+        document.lock_reason = "signed"
+
+    db.commit()
+
+    logger.info(f"Document {document_id} signed by external user {signer_email}")
+
+    return {
+        "success": True,
+        "signature_id": str(uuid.uuid4()),
+        "certificate_hash": certificate_hash,
+        **signature_data
+    }
+
+
+@app.get("/api/documents/{document_id}/signatures")
+async def get_document_signatures(
+    document_id: str,
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """Get all signatures for a document."""
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # TODO: Query actual signatures from database
+    # For now, return mock data based on document status
+    signatures = []
+
+    if document.signature_status == "fully_signed":
+        # Mock some signatures
+        signatures = [
+            {
+                "id": str(uuid.uuid4()),
+                "signer_name": "John Doe",
+                "signer_email": "john@example.com",
+                "signed_at": document.fully_signed_at.isoformat() if document.fully_signed_at else None,
+                "signature_type": "drawn",
+                "is_valid": True
+            }
+        ]
+
+    return {
+        "document_id": document_id,
+        "signature_status": document.signature_status or "not_required",
+        "signatures_required": document.signatures_required or 0,
+        "signatures_completed": document.signatures_completed or 0,
+        "signatures": signatures
     }
 
 

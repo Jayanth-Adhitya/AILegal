@@ -12,6 +12,19 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: false, // Keep TypeScript checks
   },
+  // Generate consistent BUILD_ID to avoid static asset mismatches
+  generateBuildId: async () => {
+    // Use environment variable if set (for Docker builds)
+    if (process.env.BUILD_ID) {
+      console.log(`Using BUILD_ID from environment: ${process.env.BUILD_ID}`);
+      return process.env.BUILD_ID;
+    }
+
+    // Fallback to timestamp-based ID for local development
+    const buildId = `build-${Date.now()}`;
+    console.log(`Generated BUILD_ID: ${buildId}`);
+    return buildId;
+  },
   // Allow connections to FastAPI backend
   // Use environment variable for backend URL, fallback to backend container name
   async rewrites() {
