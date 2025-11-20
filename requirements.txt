@@ -9,6 +9,8 @@ langchain>=0.3.0,<0.4.0
 langchain-google-genai>=2.0.0
 langchain-community>=0.3.0
 langchain-text-splitters>=0.3.0
+langchain-core>=0.2.38
+langchain-groq>=0.1.9
 
 # Groq AI (TTS & STT)
 groq==0.33.0
