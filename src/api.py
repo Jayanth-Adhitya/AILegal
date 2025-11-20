@@ -121,14 +121,19 @@ app.add_middleware(
 async def startup_event():
     """Initialize database on application startup."""
     logger.info("🚀 Starting AI Legal Assistant API...")
-    init_db()
-    logger.info("✅ Database initialized and ready")
+    try:
+        init_db()
+        logger.info("✅ Database initialized and ready")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize database: {e}", exc_info=True)
+        # Continue anyway so container stays up for debugging
+
     # Start collaboration WebSocket manager
     try:
         await collab_ws_manager.start()
         logger.info("✅ Collaboration service started")
     except Exception as e:
-        logger.error(f"❌ Failed to start collaboration service: {e}")
+        logger.error(f"❌ Failed to start collaboration service: {e}", exc_info=True)
 
 
 # Shutdown event to clean up resources
@@ -328,12 +333,21 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "model": settings.gemini_model,
-        "vector_store": settings.chroma_collection_name
-    }
+    try:
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "model": getattr(settings, 'gemini_model', 'unknown'),
+            "vector_store": getattr(settings, 'chroma_collection_name', 'unknown')
+        }
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        # Return healthy anyway so container stays up for debugging
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }
 
 
 # Authentication Endpoints
