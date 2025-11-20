@@ -17,6 +17,8 @@ import {
   Edit3,
   GitBranch,
   Users,
+  FileSignature,
+  CheckCircle,
 } from "lucide-react";
 import {
   SuperDocEditor,
@@ -26,6 +28,8 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { CollaboratorList } from "@/components/documents/CollaboratorList";
 import { InviteCollaboratorModal } from "@/components/documents/InviteCollaboratorModal";
+import { ApprovalStatusSidebar } from "@/components/approval/ApprovalStatusSidebar";
+import { SignaturePad, type SignatureData } from "@/components/signature/SignaturePad";
 import {
   Select,
   SelectContent,
@@ -33,6 +37,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 type EditorMode = "editing" | "viewing" | "suggesting";
@@ -54,6 +64,12 @@ export default function DocumentEditorPage() {
   const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
   const [collaboratorStates, setCollaboratorStates] = useState<any[]>([]);
   const [collaborationEnabled, setCollaborationEnabled] = useState(false);
+
+  // Approval and Signature UI state
+  const [showApprovalSidebar, setShowApprovalSidebar] = useState(false);
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const [approvals, setApprovals] = useState<any[]>([]);
+  const [signatures, setSignatures] = useState<any[]>([]);
 
   // Track if content has changed since last save
   const [isDirty, setIsDirty] = useState(false);
@@ -222,6 +238,50 @@ export default function DocumentEditorPage() {
     } catch (error) {
       console.error("Failed to export document:", error);
       alert("Failed to export document");
+    }
+  };
+
+  const handleApprove = async () => {
+    try {
+      await documentApi.approveDocument(documentId);
+      alert("Document approved successfully!");
+      // Reload to refresh approval status
+      loadDocument();
+    } catch (error) {
+      console.error("Failed to approve document:", error);
+      alert("Failed to approve document. Please try again.");
+    }
+  };
+
+  const handleReject = async () => {
+    const reason = prompt("Please provide a reason for rejection:");
+    if (!reason) return;
+
+    try {
+      await documentApi.rejectDocument(documentId, reason);
+      alert("Document rejected.");
+      // Reload to refresh approval status
+      loadDocument();
+    } catch (error) {
+      console.error("Failed to reject document:", error);
+      alert("Failed to reject document. Please try again.");
+    }
+  };
+
+  const handleRequestSignature = async () => {
+    setShowSignatureModal(true);
+  };
+
+  const handleSign = async (signatureData: SignatureData) => {
+    try {
+      await documentApi.signDocument(documentId, signatureData);
+      setShowSignatureModal(false);
+      alert("Document signed successfully!");
+      // Reload to refresh signature status
+      loadDocument();
+    } catch (error) {
+      console.error("Failed to sign document:", error);
+      alert("Failed to sign document. Please try again.");
     }
   };
 
@@ -467,6 +527,29 @@ export default function DocumentEditorPage() {
               <Save className="h-4 w-4" />
               Save
             </Button>
+
+            {/* Approval & Signature Actions */}
+            <div className="flex items-center gap-2 pl-2 ml-2 border-l">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowApprovalSidebar(!showApprovalSidebar)}
+                className="gap-1"
+              >
+                <CheckCircle className="h-4 w-4" />
+                {showApprovalSidebar ? "Hide" : "Show"} Status
+              </Button>
+
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleRequestSignature}
+                className="gap-1"
+              >
+                <FileSignature className="h-4 w-4" />
+                Sign
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -479,8 +562,9 @@ export default function DocumentEditorPage() {
       </header>
 
       {/* Main Editor Area */}
-      <main className="flex-1 overflow-hidden">
-        <div className="h-full overflow-y-auto bg-gray-100">
+      <main className="flex-1 overflow-hidden flex">
+        {/* Document Editor */}
+        <div className="flex-1 h-full overflow-y-auto bg-gray-100">
           <div className="max-w-5xl mx-auto py-8 px-4">
             {/* Document Canvas */}
             <div className="bg-white rounded-sm shadow-lg">
@@ -543,6 +627,22 @@ export default function DocumentEditorPage() {
             </div>
           </div>
         </div>
+
+        {/* Approval Status Sidebar (conditional) */}
+        {showApprovalSidebar && (
+          <div className="border-l border-gray-200 bg-white">
+            <ApprovalStatusSidebar
+              documentId={documentId}
+              currentUserId={user?.id}
+              approvals={approvals}
+              signatures={signatures}
+              onApprove={handleApprove}
+              onReject={handleReject}
+              onRequestSignature={handleRequestSignature}
+              showActions={true}
+            />
+          </div>
+        )}
       </main>
 
       {/* Auto-save indicator */}
@@ -563,6 +663,21 @@ export default function DocumentEditorPage() {
         documentId={documentId}
         documentTitle={document?.title || "Untitled Document"}
       />
+
+      {/* Signature Modal */}
+      <Dialog open={showSignatureModal} onOpenChange={setShowSignatureModal}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Sign Document</DialogTitle>
+          </DialogHeader>
+          <SignaturePad
+            onSign={handleSign}
+            onCancel={() => setShowSignatureModal(false)}
+            signerName={user?.email || ""}
+            signerEmail={user?.email || ""}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

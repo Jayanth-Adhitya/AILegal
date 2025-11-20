@@ -648,6 +648,47 @@ export const documentApi = {
       handleApiError(error);
     }
   },
+
+  // Approve document
+  async approveDocument(documentId: string): Promise<{ success: boolean; document_id: string; status: string }> {
+    try {
+      const response = await api.post<{ success: boolean; document_id: string; status: string }>(
+        `/api/documents/${documentId}/approve`
+      );
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Reject document
+  async rejectDocument(documentId: string, reason: string): Promise<{ success: boolean; document_id: string; status: string }> {
+    try {
+      const response = await api.post<{ success: boolean; document_id: string; status: string }>(
+        `/api/documents/${documentId}/reject`,
+        { reason }
+      );
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Sign document
+  async signDocument(
+    documentId: string,
+    signatureData: { signature_data: string; signature_type: "drawn" | "typed"; signer_name: string }
+  ): Promise<{ success: boolean; signature_id: string }> {
+    try {
+      const response = await api.post<{ success: boolean; signature_id: string }>(
+        `/api/documents/${documentId}/sign`,
+        signatureData
+      );
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
 };
 
 // Health check
