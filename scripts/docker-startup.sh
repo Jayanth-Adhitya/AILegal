@@ -3,12 +3,6 @@ set -e
 
 echo "=== AI Legal Assistant Startup ==="
 
-# Apply database migrations if needed
-echo "Checking database migrations..."
-if [ -f "apply_document_migrations.py" ]; then
-    python apply_document_migrations.py 2>/dev/null || echo "✓ Migrations already applied"
-fi
-
 # Check if ChromaDB directory exists and has collections
 if [ -d "/app/data/chroma_db" ] && [ "$(ls -A /app/data/chroma_db 2>/dev/null)" ]; then
     echo "✓ Embeddings database found at /app/data/chroma_db"

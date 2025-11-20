@@ -22,7 +22,6 @@ COPY src/ ./src/
 
 # Copy scripts for embedding setup and migrations
 COPY scripts/ ./scripts/
-COPY apply_document_migrations.py ./
 
 # Copy regional knowledge base documents
 COPY Data/regional/ ./Data/regional/
