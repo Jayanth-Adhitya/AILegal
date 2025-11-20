@@ -4362,6 +4362,7 @@ async def approve_document(
         logger.info(f"Document {document.id} (from job {document_id}) approved by {user.email}")
 
         return {
+            "success": True,
             "document_id": document.id,
             "status": "approved",
             "approved_by": user.email,
@@ -4380,6 +4381,7 @@ async def approve_document(
     logger.info(f"Document {document_id} approved by {user.email}")
 
     return {
+        "success": True,
         "document_id": document_id,
         "status": "approved",
         "approved_by": user.email,
@@ -4390,12 +4392,56 @@ async def approve_document(
 @app.post("/api/documents/{document_id}/reject")
 async def reject_document(
     document_id: str,
-    comments: str = Form(...),
+    request: Request,
     user: DBUser = Depends(require_auth),
     db: DBSessionType = Depends(get_db)
 ):
     """Reject a document with comments."""
-    # Check document exists
+    # Parse JSON body
+    body = await request.json()
+    comments = body.get("reason", "")
+
+    # First check if it's an AnalysisJob ID
+    job = db.query(DBAnalysisJob).filter(DBAnalysisJob.job_id == document_id).first()
+    if job:
+        # Check if user owns this job
+        if job.user_id != user.id:
+            raise HTTPException(status_code=403, detail="You do not have access to this document")
+
+        # Check if this job has an associated Document, if not create one
+        document = db.query(Document).filter(Document.analysis_job_id == document_id).first()
+        if not document:
+            # Create a new Document from the AnalysisJob
+            document = Document(
+                id=str(uuid.uuid4()),
+                title=job.filename,
+                analysis_job_id=job.job_id,
+                created_by_user_id=user.id,
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+                status="draft",
+                version_number=1,
+                approval_status="rejected",
+                signature_status="not_required",
+                is_locked=False
+            )
+            db.add(document)
+        else:
+            document.approval_status = "rejected"
+
+        db.commit()
+        logger.info(f"Document {document.id} (from job {document_id}) rejected by {user.email}: {comments}")
+
+        return {
+            "success": True,
+            "document_id": document.id,
+            "status": "rejected",
+            "rejected_by": user.email,
+            "comments": comments,
+            "rejected_at": datetime.now().isoformat()
+        }
+
+    # If not an AnalysisJob, try as a Document ID
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -4407,11 +4453,99 @@ async def reject_document(
     logger.info(f"Document {document_id} rejected by {user.email}: {comments}")
 
     return {
+        "success": True,
         "document_id": document_id,
         "status": "rejected",
         "rejected_by": user.email,
         "comments": comments,
         "rejected_at": datetime.now().isoformat()
+    }
+
+
+@app.post("/api/documents/{document_id}/sign")
+async def sign_document(
+    document_id: str,
+    request: Request,
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """Sign a document."""
+    import hashlib
+
+    # Parse JSON body
+    body = await request.json()
+    signature_data = body.get("signature_data", "")
+    signature_type = body.get("signature_type", "drawn")
+    signer_name = body.get("signer_name", user.email)
+
+    # First check if it's an AnalysisJob ID
+    job = db.query(DBAnalysisJob).filter(DBAnalysisJob.job_id == document_id).first()
+    if job:
+        # Check if user owns this job
+        if job.user_id != user.id:
+            raise HTTPException(status_code=403, detail="You do not have access to this document")
+
+        # Check if this job has an associated Document, if not create one
+        document = db.query(Document).filter(Document.analysis_job_id == document_id).first()
+        if not document:
+            # Create a new Document from the AnalysisJob
+            document = Document(
+                id=str(uuid.uuid4()),
+                title=job.filename,
+                analysis_job_id=job.job_id,
+                created_by_user_id=user.id,
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+                status="draft",
+                version_number=1,
+                approval_status="pending",
+                signature_status="signing",
+                signatures_required=1,
+                signatures_completed=1,
+                is_locked=False
+            )
+            db.add(document)
+    else:
+        # Try as a Document ID
+        document = db.query(Document).filter(Document.id == document_id).first()
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+    # Calculate document hash
+    content = document.redlined_content or document.original_content
+    if content:
+        certificate_hash = hashlib.sha256(content.encode() if isinstance(content, str) else content).hexdigest()
+    else:
+        certificate_hash = "no-content"
+
+    # Update document signature count
+    if not document.signatures_required:
+        document.signatures_required = 1
+    document.signatures_completed = (document.signatures_completed or 0) + 1
+
+    if document.signatures_completed >= document.signatures_required:
+        document.signature_status = "fully_signed"
+        document.fully_signed_at = datetime.now()
+        document.is_locked = True
+        document.lock_reason = "signed"
+    else:
+        document.signature_status = "signing"
+
+    db.commit()
+
+    logger.info(f"Document {document.id} signed by {user.email}")
+
+    signature_id = str(uuid.uuid4())
+
+    return {
+        "success": True,
+        "signature_id": signature_id,
+        "certificate_hash": certificate_hash,
+        "document_id": document.id,
+        "signer_email": user.email,
+        "signer_name": signer_name,
+        "signature_type": signature_type,
+        "signed_at": datetime.now().isoformat()
     }
 
 
