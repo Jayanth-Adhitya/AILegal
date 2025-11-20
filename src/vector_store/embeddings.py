@@ -317,3 +317,68 @@ class PolicyEmbeddings:
             metadata={"hnsw:space": "cosine"}
         )
         logger.warning("Collection cleared")
+
+    def embed_policy_section(
+        self,
+        section_id: str,
+        section_content: str,
+        metadata: Dict[str, Any],
+        company_id: str
+    ):
+        """
+        Embed a single policy section into ChromaDB.
+
+        Args:
+            section_id: Unique section identifier
+            section_content: Text content of the section
+            metadata: Metadata including policy_id, section_number, etc.
+            company_id: Company ID for multi-tenant isolation
+        """
+        try:
+            # Get user's collection
+            collection = self.get_or_create_user_collection(company_id)
+
+            # Generate embedding
+            embedding = self.embeddings.embed_query(section_content)
+
+            # Add to ChromaDB with enhanced metadata
+            collection.add(
+                documents=[section_content],
+                embeddings=[embedding],
+                metadatas=[metadata],
+                ids=[section_id]
+            )
+
+            logger.info(f"Embedded section {section_id} for policy {metadata.get('policy_id')}")
+
+        except Exception as e:
+            logger.error(f"Error embedding section {section_id}: {e}")
+            raise
+
+    def delete_policy_embeddings(self, policy_id: str, company_id: str):
+        """
+        Delete all embeddings for a policy.
+
+        Args:
+            policy_id: Policy ID
+            company_id: Company ID
+        """
+        try:
+            collection = self.get_or_create_user_collection(company_id)
+
+            # Query for all sections with this policy_id
+            results = collection.get(
+                where={"policy_id": policy_id},
+                include=["metadatas"]
+            )
+
+            if results and results.get('ids'):
+                ids_to_delete = results['ids']
+                collection.delete(ids=ids_to_delete)
+                logger.info(f"Deleted {len(ids_to_delete)} embeddings for policy {policy_id}")
+            else:
+                logger.info(f"No embeddings found for policy {policy_id}")
+
+        except Exception as e:
+            logger.error(f"Error deleting embeddings for policy {policy_id}: {e}")
+            raise

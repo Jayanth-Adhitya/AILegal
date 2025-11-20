@@ -1,6 +1,7 @@
 """Database engine and session management."""
 
 import logging
+import os
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.engine import Engine
@@ -10,9 +11,12 @@ logger = logging.getLogger(__name__)
 # Create declarative base
 Base = declarative_base()
 
+# Get database path from environment variable (for Azure deployment) or use default
+DATABASE_PATH = os.getenv('DATABASE_PATH', 'legal_ai.db')
+
 # Create SQLite engine with WAL mode for better concurrency
 engine = create_engine(
-    'sqlite:///legal_ai.db',
+    f'sqlite:///{DATABASE_PATH}',
     connect_args={"check_same_thread": False},
     echo=False  # Set to True for SQL query logging
 )
@@ -51,5 +55,5 @@ def init_db():
 
     Base.metadata.create_all(bind=engine)
     logger.info("✅ Database initialized successfully")
-    logger.info(f"   Database file: legal_ai.db")
+    logger.info(f"   Database file: {DATABASE_PATH}")
     logger.info(f"   Tables created: users, sessions, analysis_jobs")
