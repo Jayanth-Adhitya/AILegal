@@ -1,6 +1,96 @@
 // Policy Types
 export interface Policy {
   id: string;
+  company_id: string;
+  created_by_user_id: string;
+
+  // Core metadata
+  title: string;
+  policy_number?: string;
+  version: string;
+  effective_date?: string;
+
+  // File information
+  original_filename: string;
+  file_path: string;
+  file_size?: number;
+  file_type: 'pdf' | 'txt' | 'md';
+
+  // Content
+  full_text: string;
+  summary?: string;
+  sections?: PolicySection[];
+
+  // Status and metadata
+  status: 'active' | 'archived' | 'draft';
+  tags?: string[];
+
+  // Timestamps
+  created_at: string;
+  updated_at: string;
+  created_by?: User;
+
+  // Optional included data
+  versions?: PolicyVersion[];
+}
+
+export interface PolicySection {
+  id: string;
+  policy_id: string;
+  section_number?: string;
+  section_title?: string;
+  section_content: string;
+  section_order: number;
+  section_type?: string;
+  parent_section_id?: string;
+  subsections?: PolicySection[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PolicyVersion {
+  id: string;
+  policy_id: string;
+  version_number: number;
+  snapshot_data: string; // JSON string
+  changed_by_user_id?: string;
+  change_description?: string;
+  created_at: string;
+  changed_by?: User;
+}
+
+export interface PolicyUpdateRequest {
+  title?: string;
+  policy_number?: string;
+  version?: string;
+  effective_date?: string;
+  full_text?: string;
+  summary?: string;
+  status?: 'active' | 'archived' | 'draft';
+  tags?: string[];
+  sections?: PolicySectionUpdate[];
+  change_description?: string;
+}
+
+export interface PolicySectionUpdate {
+  id?: string; // Omit for new sections
+  section_number?: string;
+  section_title?: string;
+  section_content: string;
+  section_order: number;
+  section_type?: string;
+  parent_section_id?: string;
+}
+
+export interface ParsedPolicyResponse {
+  policy: Policy;
+  parsing_status: 'success' | 'partial' | 'failed';
+  parsing_errors?: string[];
+}
+
+// Deprecated - keeping for backward compatibility
+export interface OldPolicy {
+  id: string;
   name: string;
   type: string;
   version: string;
@@ -326,4 +416,16 @@ export interface EditorConfig {
   readOnly: boolean;
   placeholder?: string;
   onError?: (error: Error) => void;
+}
+
+// Policy Chat Types
+export interface PolicyChatRequest {
+  message: string;
+  conversation_history?: Array<{ role: string; content: string }>;
+}
+
+export interface PolicyChatResponse {
+  response: string;
+  policy_id: string;
+  timestamp: string;
 }

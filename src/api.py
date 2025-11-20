@@ -49,10 +49,11 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Add CORS middleware - must specify exact origins when credentials=True
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+# Configure CORS origins - support local, VPS, and Azure deployments
+def get_cors_origins():
+    """Get CORS origins from environment or use defaults."""
+    # Base origins for development
+    origins = [
         "http://localhost:3000",  # Next.js dev server
         "http://localhost:3001",  # Word Add-in dev server
         "https://localhost:3001",  # Word Add-in HTTPS
@@ -60,11 +61,55 @@ app.add_middleware(
         "http://127.0.0.1:3001",
         "https://127.0.0.1:3001",
         "null",  # For Office Add-in iframe
-        # Production domains
-        "https://ailegal.cirilla.ai",  # Production frontend (legacy)
-        "https://contracts.cirilla.ai",  # Production frontend
-        "https://api.ailegal.cirilla.ai",  # Production API
-    ],
+    ]
+
+    # Add custom CORS origins from environment variable
+    # This supports both VPS and Azure deployments
+    custom_origins = os.getenv("CORS_ORIGINS", "")
+    if custom_origins:
+        # Format: "https://contract.cirilla.ai,https://api.contract.cirilla.ai,https://contracts.cirilla.ai"
+        origins.extend([origin.strip() for origin in custom_origins.split(",") if origin.strip()])
+
+    # Backward compatibility: Add Azure-specific origins
+    azure_origins = os.getenv("AZURE_CORS_ORIGINS", "")
+    if azure_origins:
+        origins.extend([origin.strip() for origin in azure_origins.split(",") if origin.strip()])
+
+    # Default production domains (fallback if env vars not set)
+    default_production = [
+        "https://contract.cirilla.ai",      # VPS frontend
+        "https://api.contract.cirilla.ai",  # VPS API
+        "https://collab.contract.cirilla.ai",  # VPS collaboration
+        "https://word.contract.cirilla.ai", # VPS Word add-in
+        "https://contracts.cirilla.ai",     # Azure frontend custom domain
+        "https://api.cirilla.ai",           # Azure API custom domain
+        "https://collab.cirilla.ai",        # Azure collaboration custom domain
+        "https://ailegal.cirilla.ai",       # Legacy domain
+        "https://api.ailegal.cirilla.ai",   # Legacy API
+        # Azure default Container Apps URLs
+        "https://frontend.niceground-5231e36c.uaenorth.azurecontainerapps.io",
+        "https://backend-api.niceground-5231e36c.uaenorth.azurecontainerapps.io",
+        "https://collab-server.niceground-5231e36c.uaenorth.azurecontainerapps.io",
+        "https://word-addin.niceground-5231e36c.uaenorth.azurecontainerapps.io",
+    ]
+
+    origins.extend(default_production)
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_origins = []
+    for origin in origins:
+        if origin not in seen:
+            seen.add(origin)
+            unique_origins.append(origin)
+
+    logger.info(f"CORS allowed origins: {unique_origins}")
+    return unique_origins
+
+# Add CORS middleware - must specify exact origins when credentials=True
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -455,18 +500,20 @@ async def upload_policy(
     user: DBUser = Depends(require_auth)
 ):
     """
-    Upload a policy document to user's collection.
+    Upload and parse a policy document.
+
+    Parses the document to extract metadata and sections,
+    stores in database, and updates vector store for RAG.
 
     Args:
         file: Policy document (PDF, TXT, or MD)
 
     Returns:
-        Upload confirmation with chunk count
+        Parsed policy with metadata and sections
     """
     try:
-
         # Validate file type
-        allowed_extensions = ['.pdf', '.txt', '.md']
+        allowed_extensions = ['.pdf', '.txt', '.md', '.docx']
         file_ext = Path(file.filename).suffix.lower()
         if file_ext not in allowed_extensions:
             raise HTTPException(
@@ -474,109 +521,430 @@ async def upload_policy(
                 detail=f"Unsupported file type. Allowed: {', '.join(allowed_extensions)}"
             )
 
-        # Save uploaded file temporarily
-        temp_dir = Path(settings.upload_dir) / "policies" / user.company_id
-        temp_dir.mkdir(parents=True, exist_ok=True)
+        # Save uploaded file
+        policy_dir = Path(settings.upload_dir) / "policies" / user.company_id
+        policy_dir.mkdir(parents=True, exist_ok=True)
 
-        file_path = temp_dir / file.filename
+        file_path = policy_dir / file.filename
         content = await file.read()
+        file_size = len(content)
+
         with open(file_path, "wb") as f:
             f.write(content)
 
-        # Ingest into user's collection
-        from .vector_store.embeddings import PolicyEmbeddings
-        embeddings = PolicyEmbeddings()
-        chunk_count = embeddings.ingest_single_file(file_path, company_id=user.company_id)
+        # Create policy using PolicyService
+        from .services.policy_service import PolicyService
+        db = next(get_db())
+        try:
+            policy_service = PolicyService(db)
 
-        logger.info(f"Policy uploaded by {user.email}: {file.filename} ({chunk_count} chunks)")
+            # Parse and create policy with sections
+            policy = policy_service.create_policy_from_upload(
+                file_path=str(file_path),
+                original_filename=file.filename,
+                file_size=file_size,
+                file_type=file_ext.lstrip('.'),
+                company_id=user.company_id,
+                user_id=user.id
+            )
 
-        return {
-            "success": True,
-            "message": "Policy uploaded successfully",
-            "filename": file.filename,
-            "chunk_count": chunk_count,
-            "company_id": user.company_id
-        }
+            # Update vector store with sections
+            from .vector_store.embeddings import PolicyEmbeddings
+            embeddings = PolicyEmbeddings()
+
+            # Embed each section separately with metadata (skip empty sections)
+            embedded_count = 0
+            for section in policy.sections:
+                # Skip sections with empty or whitespace-only content
+                if not section.section_content or not section.section_content.strip():
+                    logger.warning(f"Skipping empty section {section.id} in policy {policy.id}")
+                    continue
+
+                try:
+                    embeddings.embed_policy_section(
+                        section_id=section.id,
+                        section_content=section.section_content,
+                        metadata={
+                            'policy_id': policy.id,
+                            'policy_number': policy.policy_number or '',
+                            'policy_title': policy.title,
+                            'section_id': section.id,
+                            'section_number': section.section_number or '',
+                            'section_title': section.section_title or '',
+                            'company_id': user.company_id,
+                            'version': policy.version
+                        },
+                        company_id=user.company_id
+                    )
+                    embedded_count += 1
+                except Exception as e:
+                    logger.error(f"Error embedding section {section.id}: {e}")
+                    # Continue with other sections instead of failing completely
+                    continue
+
+            logger.info(f"Policy uploaded by {user.email}: {policy.title} ({len(policy.sections)} sections, {embedded_count} embedded)")
+
+            return {
+                "success": True,
+                "policy": policy.to_dict(include_sections=True),
+                "parsing_status": policy.status,
+                "message": f"Policy uploaded and parsed successfully ({embedded_count} sections embedded)"
+            }
+
+        finally:
+            db.close()
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Policy upload error: {e}")
+        logger.error(f"Policy upload error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to upload policy: {str(e)}")
 
 
 @app.get("/api/policies")
-async def list_policies(user: DBUser = Depends(require_auth)):
+async def list_policies(
+    user: DBUser = Depends(require_auth),
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    db: DBSessionType = Depends(get_db)
+):
     """
-    List user's uploaded policies.
+    List user's uploaded policies with structured data.
+
+    Args:
+        status: Filter by status ('active', 'archived', 'draft')
+        search: Search by title or policy_number
 
     Returns:
-        List of policies with metadata
+        List of policies with full metadata and section counts
     """
     try:
+        from .services.policy_service import PolicyService
+        policy_service = PolicyService(db)
 
-        # Get user's collection
-        from .vector_store.embeddings import PolicyEmbeddings
-        embeddings = PolicyEmbeddings()
-        collection = embeddings.get_or_create_user_collection(user.company_id)
+        policies = policy_service.list_policies(
+            company_id=user.company_id,
+            status=status,
+            search=search
+        )
 
-        # Get all documents from collection
-        count = collection.count()
-
-        # Get unique file names from metadata
-        if count > 0:
-            results = collection.get(include=["metadatas"])
-            metadatas = results.get("metadatas", [])
-
-            # Group by filename
-            files = {}
-            for metadata in metadatas:
-                filename = metadata.get("filename", "unknown")
-                if filename not in files:
-                    # Generate a unique ID for this policy file
-                    policy_id = hash(f"{user.company_id}_{filename}")
-
-                    # Get file size if file_path exists
-                    file_size = None
-                    file_path = metadata.get("file_path", "")
-                    if file_path and Path(file_path).exists():
-                        file_size = Path(file_path).stat().st_size
-
-                    files[filename] = {
-                        "id": str(policy_id),
-                        "name": filename,
-                        "type": metadata.get("policy_type", "unknown"),
-                        "version": metadata.get("version", "v1.0"),
-                        "file_path": file_path,
-                        "uploaded_at": metadata.get("uploaded_at", ""),
-                        "file_size": file_size,
-                        "chunk_count": 0
-                    }
-                files[filename]["chunk_count"] += 1
-
-            policy_list = list(files.values())
-        else:
-            policy_list = []
+        # Add section count to each policy
+        policies_data = []
+        for policy in policies:
+            policy_dict = policy.to_dict(include_sections=False)
+            policy_dict['section_count'] = len(policy.sections) if policy.sections else 0
+            policies_data.append(policy_dict)
 
         return {
             "success": True,
-            "policies": policy_list,
-            "total_chunks": count,
-            "company_id": user.company_id
+            "policies": policies_data,
+            "total": len(policies_data)
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"List policies error: {e}")
+        logger.error(f"List policies error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to list policies")
+
+
+@app.get("/api/policies/{policy_id}")
+async def get_policy(
+    policy_id: str,
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Get a single policy with all sections and version history.
+
+    Args:
+        policy_id: Policy ID
+
+    Returns:
+        Policy with full details
+    """
+    try:
+        from .services.policy_service import PolicyService
+        policy_service = PolicyService(db)
+
+        policy = policy_service.get_policy(policy_id, user.company_id)
+
+        if not policy:
+            raise HTTPException(status_code=404, detail="Policy not found")
+
+        return {
+            "success": True,
+            "policy": policy.to_dict(include_sections=True, include_versions=True)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get policy error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to get policy")
+
+
+@app.put("/api/policies/{policy_id}")
+async def update_policy(
+    policy_id: str,
+    update_data: dict,
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Update a policy's metadata and/or sections.
+
+    Creates a version snapshot before updating.
+
+    Args:
+        policy_id: Policy ID
+        update_data: Fields to update
+
+    Returns:
+        Updated policy
+    """
+    try:
+        from .services.policy_service import PolicyService
+        policy_service = PolicyService(db)
+
+        policy = policy_service.update_policy(
+            policy_id=policy_id,
+            company_id=user.company_id,
+            user_id=user.id,
+            update_data=update_data,
+            change_description=update_data.get('change_description')
+        )
+
+        # Update vector store if sections or content changed
+        if 'sections' in update_data or 'full_text' in update_data:
+            from .vector_store.embeddings import PolicyEmbeddings
+            embeddings = PolicyEmbeddings()
+
+            # Delete old embeddings
+            embeddings.delete_policy_embeddings(policy_id, user.company_id)
+
+            # Re-embed sections (skip empty ones)
+            for section in policy.sections:
+                if not section.section_content or not section.section_content.strip():
+                    continue
+
+                try:
+                    embeddings.embed_policy_section(
+                        section_id=section.id,
+                        section_content=section.section_content,
+                        metadata={
+                            'policy_id': policy.id,
+                            'policy_number': policy.policy_number or '',
+                            'policy_title': policy.title,
+                            'section_id': section.id,
+                            'section_number': section.section_number or '',
+                            'section_title': section.section_title or '',
+                            'company_id': user.company_id,
+                            'version': policy.version
+                        },
+                        company_id=user.company_id
+                    )
+                except Exception as e:
+                    logger.error(f"Error embedding section {section.id} during update: {e}")
+                    continue
+
+        logger.info(f"Policy {policy_id} updated by {user.email}")
+
+        return {
+            "success": True,
+            "policy": policy.to_dict(include_sections=True),
+            "message": "Policy updated successfully"
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update policy error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to update policy")
+
+
+@app.delete("/api/policies/{policy_id}")
+async def delete_policy(
+    policy_id: str,
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Delete a policy and all related data.
+
+    Removes:
+    - Policy record (CASCADE deletes sections and versions)
+    - Vector store embeddings
+    - Original file from disk
+
+    Args:
+        policy_id: Policy ID
+
+    Returns:
+        Success confirmation
+    """
+    try:
+        from .services.policy_service import PolicyService
+        from .vector_store.embeddings import PolicyEmbeddings
+
+        policy_service = PolicyService(db)
+        embeddings = PolicyEmbeddings()
+
+        # Delete vector store embeddings first
+        embeddings.delete_policy_embeddings(policy_id, user.company_id)
+
+        # Delete policy (CASCADE handles sections and versions)
+        success = policy_service.delete_policy(policy_id, user.company_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Policy not found")
+
+        logger.info(f"Policy {policy_id} deleted by {user.email}")
+
+        return {
+            "success": True,
+            "message": "Policy deleted successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete policy error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to delete policy")
+
+
+# Policy Chat Models
+class PolicyChatRequest(BaseModel):
+    message: str
+    conversation_history: Optional[List[Dict[str, str]]] = []
+
+
+class PolicyChatResponse(BaseModel):
+    response: str
+    policy_id: str
+    timestamp: str
+
+
+@app.post("/api/policies/{policy_id}/chat", response_model=PolicyChatResponse)
+async def policy_chat(
+    policy_id: str,
+    request: PolicyChatRequest,
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Chat with an AI assistant about a specific policy.
+
+    Args:
+        policy_id: Policy ID
+        request: Chat request with message and optional conversation history
+
+    Returns:
+        AI assistant response
+    """
+    try:
+        from .services.policy_service import PolicyService
+
+        # Validate message
+        if not request.message or not request.message.strip():
+            raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+        if len(request.message) > 5000:
+            raise HTTPException(status_code=400, detail="Message too long (max 5000 characters)")
+
+        # Get policy and verify access
+        policy_service = PolicyService(db)
+        policy = policy_service.get_policy(policy_id, user.company_id)
+
+        if not policy:
+            raise HTTPException(status_code=404, detail="Policy not found")
+
+        # Build policy context
+        context_parts = [
+            f"POLICY METADATA:",
+            f"Title: {policy.title}",
+            f"Policy Number: {policy.policy_number or 'N/A'}",
+            f"Version: {policy.version}",
+            f"Effective Date: {policy.effective_date or 'N/A'}",
+            f"Status: {policy.status}",
+            "",
+            "POLICY CONTENT:",
+        ]
+
+        # Add sections
+        if policy.sections and len(policy.sections) > 0:
+            context_parts.append("\nPOLICY SECTIONS:")
+            for section in sorted(policy.sections, key=lambda s: s.section_order):
+                section_header = f"\n{section.section_number}. {section.section_title}" if section.section_number and section.section_title else f"\nSection {section.section_order + 1}"
+                context_parts.append(section_header)
+                context_parts.append(section.section_content)
+        elif policy.full_text:
+            context_parts.append(policy.full_text)
+
+        policy_context = "\n".join(context_parts)
+
+        # Truncate if too long (keep under 100k chars)
+        if len(policy_context) > 100000:
+            policy_context = policy_context[:100000] + "\n... (content truncated)"
+            logger.warning(f"Policy context truncated for policy {policy_id}")
+
+        # Build system prompt
+        system_prompt = f"""You are an AI assistant helping users understand policy documents.
+You have access to the full content of the policy titled "{policy.title}".
+
+{policy_context}
+
+Answer user questions about this policy clearly and accurately. Be helpful and conversational.
+If information is not in the policy, say so - do not make up information.
+Provide specific references to sections when applicable."""
+
+        # Initialize Gemini
+        llm = ChatGoogleGenerativeAI(
+            model=settings.gemini_model,
+            google_api_key=settings.google_api_key,
+            temperature=0.7,
+            max_output_tokens=2048
+        )
+
+        # Build messages for Gemini
+        messages = [("system", system_prompt)]
+
+        # Add conversation history if provided
+        if request.conversation_history:
+            for msg in request.conversation_history[-10:]:  # Only last 10 messages
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if role and content:
+                    messages.append((role, content))
+
+        # Add current user message
+        messages.append(("user", request.message))
+
+        # Call Gemini
+        logger.info(f"Policy chat for {policy_id} by {user.email}: {request.message[:50]}...")
+        response = await llm.ainvoke(messages)
+
+        return PolicyChatResponse(
+            response=response.content,
+            policy_id=policy_id,
+            timestamp=datetime.now().isoformat()
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Policy chat error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to process chat message")
 
 
 @app.post("/api/contracts/upload", response_model=AnalysisResponse)
 async def upload_contract(
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    user: DBUser = Depends(require_auth)
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
 ):
     """
     Upload a contract for analysis.
@@ -612,23 +980,32 @@ async def upload_contract(
         with open(upload_path, "wb") as f:
             f.write(content)
 
-        # Initialize job with user_id if logged in
+        # Create database record
+        db_job = DBAnalysisJob(
+            job_id=job_id,
+            user_id=user.id,
+            filename=file.filename,
+            upload_path=str(upload_path),
+            status="uploaded",
+            source="web_upload"
+        )
+        db.add(db_job)
+        db.commit()
+
+        # Also add to in-memory dict for backwards compatibility
         job_data = {
             "job_id": job_id,
             "status": "uploaded",
             "filename": file.filename,
             "upload_path": str(upload_path),
             "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat()
+            "updated_at": datetime.now().isoformat(),
+            "user_id": user.id,
+            "company_name": user.company_name
         }
-
-        # Add user info (now always required)
-        job_data["user_id"] = user.id
-        job_data["company_name"] = user.company_name
-
         analysis_jobs[job_id] = job_data
 
-        logger.info(f"Contract uploaded: {job_id} - {file.filename}")
+        logger.info(f"Contract uploaded and persisted: {job_id} - {file.filename}")
 
         return AnalysisResponse(
             job_id=job_id,
@@ -693,6 +1070,124 @@ async def list_contracts(
         raise HTTPException(status_code=500, detail="Failed to list contracts")
 
 
+@app.get("/api/analysis/history")
+async def get_analysis_history(
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db),
+    page: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    source: Optional[str] = Query(None)
+):
+    """
+    Get analysis history for the current user.
+
+    Args:
+        page: Page number (0-indexed)
+        limit: Number of results per page (max 100)
+        source: Optional filter by source ('web_upload' or 'word_addin')
+
+    Returns:
+        Paginated list of analysis results with metadata
+    """
+    try:
+        # Build query
+        query = db.query(DBAnalysisJob).filter(DBAnalysisJob.user_id == user.id)
+
+        # Apply source filter if provided
+        if source and source in ['web_upload', 'word_addin']:
+            query = query.filter(DBAnalysisJob.source == source)
+
+        # Get total count
+        total_count = query.count()
+
+        # Get paginated results
+        analyses = query.order_by(DBAnalysisJob.created_at.desc()).offset(page * limit).limit(limit).all()
+
+        # Transform results for frontend
+        results = []
+        for analysis in analyses:
+            result_dict = {
+                "job_id": analysis.job_id,
+                "filename": analysis.filename,
+                "status": analysis.status,
+                "source": analysis.source,
+                "created_at": analysis.created_at.isoformat(),
+                "updated_at": analysis.updated_at.isoformat()
+            }
+
+            # Include summary if analysis is completed and has results
+            if analysis.status == "completed" and analysis.result_json:
+                try:
+                    full_results = json.loads(analysis.result_json)
+
+                    # Calculate summary from actual analysis_results (same logic as status endpoint)
+                    if "analysis_results" in full_results:
+                        analysis_results = full_results["analysis_results"]
+                        total_clauses = len(analysis_results)
+
+                        # Count compliant/non-compliant based on the 'compliant' field
+                        compliant = sum(1 for r in analysis_results if r.get("compliant", False))
+                        non_compliant = sum(1 for r in analysis_results if not r.get("compliant", True))
+
+                        compliance_rate = (compliant / total_clauses * 100) if total_clauses > 0 else 0
+
+                        # Determine overall risk from analysis results
+                        risk_levels = [r.get("risk_level", "").lower() for r in analysis_results if r.get("risk_level")]
+                        if "critical" in risk_levels:
+                            overall_risk = "Critical"
+                        elif "high" in risk_levels:
+                            overall_risk = "High"
+                        elif "medium" in risk_levels:
+                            overall_risk = "Medium"
+                        elif "low" in risk_levels:
+                            overall_risk = "Low"
+                        else:
+                            overall_risk = "Unknown"
+
+                        result_dict["summary"] = {
+                            "total_clauses": total_clauses,
+                            "compliant_clauses": compliant,
+                            "non_compliant_clauses": non_compliant,
+                            "compliance_rate": compliance_rate,
+                            "overall_risk": overall_risk
+                        }
+                    # Fallback to summary field if analysis_results not available
+                    elif "summary" in full_results:
+                        summary = full_results["summary"]
+                        # Normalize old format to new format
+                        if "total_clauses_reviewed" in summary:
+                            total = summary.get("total_clauses_reviewed", 0)
+                            compliant = summary.get("compliant_clauses", 0)
+                            result_dict["summary"] = {
+                                "total_clauses": total,
+                                "compliant_clauses": compliant,
+                                "non_compliant_clauses": summary.get("non_compliant_clauses", total - compliant),
+                                "compliance_rate": (compliant / total * 100) if total > 0 else 0,
+                                "overall_risk": summary.get("overall_risk_assessment", "Unknown").title()
+                            }
+                        else:
+                            result_dict["summary"] = summary
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse result_json for job {analysis.job_id}")
+
+            results.append(result_dict)
+
+        return {
+            "success": True,
+            "analyses": results,
+            "pagination": {
+                "total": total_count,
+                "page": page,
+                "limit": limit,
+                "total_pages": (total_count + limit - 1) // limit
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching analysis history: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch analysis history")
+
+
 @app.post("/api/contracts/{job_id}/analyze")
 async def analyze_contract(
     job_id: str,
@@ -746,24 +1241,20 @@ def run_contract_analysis(job_id: str, contract_path: str):
         job_id: Job ID
         contract_path: Path to the contract file
     """
+    db = next(get_db())
     try:
         logger.info(f"Running analysis for job: {job_id}")
 
-        # Get job data to extract company_id if available
-        job = analysis_jobs.get(job_id)
-        company_id = None
+        # Get job from database
+        db_job = db.query(DBAnalysisJob).filter(DBAnalysisJob.job_id == job_id).first()
+        if not db_job:
+            logger.error(f"Job {job_id} not found in database")
+            return
 
-        if job and job.get("user_id"):
-            # Find user by user_id to get company_id from database
-            user_id = job["user_id"]
-            db = next(get_db())
-            try:
-                user = db.query(DBUser).filter(DBUser.id == user_id).first()
-                if user:
-                    company_id = user.company_id
-                    logger.info(f"Using company-specific policies for company: {company_id}")
-            finally:
-                db.close()
+        # Get user for company_id
+        user = db.query(DBUser).filter(DBUser.id == db_job.user_id).first()
+        company_id = user.company_id if user else None
+        logger.info(f"Using company-specific policies for company: {company_id}")
 
         # Initialize analyzer with company_id for user-specific policy retrieval
         analyzer = ContractAnalyzer(company_id=company_id)
@@ -784,30 +1275,51 @@ def run_contract_analysis(job_id: str, contract_path: str):
             if results.get('analysis_results'):
                 logger.info(f"First result keys: {list(results['analysis_results'][0].keys())}")
 
-        # Update job with results
-        analysis_jobs[job_id].update({
-            "status": "completed",
-            "updated_at": datetime.now().isoformat(),
-            "output_path": str(output_path),
-            "results": results
-        })
+        # Update database with results
+        db_job.status = "completed"
+        db_job.updated_at = datetime.now()
+        db_job.output_path = str(output_path)
+        db_job.result_json = json.dumps(results)  # Store full results as JSON
+        db.commit()
 
-        logger.info(f"Analysis completed for job: {job_id}")
+        # Also update in-memory for backwards compatibility
+        if job_id in analysis_jobs:
+            analysis_jobs[job_id].update({
+                "status": "completed",
+                "updated_at": datetime.now().isoformat(),
+                "output_path": str(output_path),
+                "results": results
+            })
+
+        logger.info(f"Analysis completed and persisted for job: {job_id}")
 
     except Exception as e:
         logger.error(f"Error in analysis job {job_id}: {e}")
-        analysis_jobs[job_id].update({
-            "status": "failed",
-            "updated_at": datetime.now().isoformat(),
-            "error": str(e)
-        })
+        # Update database with error
+        db_job = db.query(DBAnalysisJob).filter(DBAnalysisJob.job_id == job_id).first()
+        if db_job:
+            db_job.status = "failed"
+            db_job.updated_at = datetime.now()
+            db_job.error = str(e)
+            db.commit()
+
+        # Also update in-memory for backwards compatibility
+        if job_id in analysis_jobs:
+            analysis_jobs[job_id].update({
+                "status": "failed",
+                "updated_at": datetime.now().isoformat(),
+                "error": str(e)
+            })
+    finally:
+        db.close()
 
 
 @app.get("/api/contracts/{job_id}/status")
 async def get_analysis_status(
     request: Request,
     job_id: str,
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
+    db: DBSessionType = Depends(get_db)
 ):
     """
     Get the status of a contract analysis job.
@@ -818,18 +1330,26 @@ async def get_analysis_status(
     Returns:
         Job status and results (if completed)
     """
-    if job_id not in analysis_jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
+    # First, try to get job from database (persistent storage)
+    db_job = db.query(DBAnalysisJob).filter(DBAnalysisJob.job_id == job_id).first()
 
-    job = analysis_jobs[job_id]
+    if not db_job:
+        # Fallback to in-memory (for backward compatibility with active jobs)
+        if job_id not in analysis_jobs:
+            raise HTTPException(status_code=404, detail="Job not found")
+        job = analysis_jobs[job_id]
+        use_db = False
+    else:
+        use_db = True
 
     # Check ownership if user is authenticated
     session_id = request.cookies.get("session_id")
     current_user = auth_service.get_user_by_session(session_id) if session_id else None
 
-    if current_user and job.get("user_id"):
-        # If both user and job have user_id, check ownership
-        if job["user_id"] != current_user.id:
+    if current_user:
+        # Check ownership from database or in-memory
+        owner_user_id = db_job.user_id if use_db else job.get("user_id")
+        if owner_user_id and owner_user_id != current_user.id:
             raise HTTPException(status_code=403, detail="Access denied - not your contract")
 
     # Map backend status to frontend status
@@ -840,27 +1360,40 @@ async def get_analysis_status(
         "failed": "failed"
     }
 
+    # Get status from database or in-memory
+    job_status = db_job.status if use_db else job["status"]
+
     # Calculate progress
     progress = 0
-    if job["status"] == "uploaded":
+    if job_status == "uploaded":
         progress = 0
-    elif job["status"] == "analyzing":
+    elif job_status == "analyzing":
         progress = 50  # Default to 50% during analysis
-    elif job["status"] == "completed":
+    elif job_status == "completed":
         progress = 100
-    elif job["status"] == "failed":
+    elif job_status == "failed":
         progress = 0
 
     response = {
         "job_id": job_id,
-        "status": status_map.get(job["status"], job["status"]),
+        "status": status_map.get(job_status, job_status),
         "progress": progress,
-        "message": job.get("message", ""),
+        "message": db_job.error if (use_db and db_job.error) else job.get("message", "") if not use_db else "",
     }
 
     # Include full result with analysis details if completed
-    if job["status"] == "completed" and "results" in job:
-        results = job["results"]
+    if job_status == "completed":
+        # Get results from database or in-memory
+        if use_db and db_job.result_json:
+            try:
+                results = json.loads(db_job.result_json)
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse result_json for job {job_id}")
+                results = {}
+        elif not use_db and "results" in job:
+            results = job["results"]
+        else:
+            results = {}
 
         # Get and transform analysis results to match frontend expectations
         analysis_results_raw = results.get("analysis_results", [])
@@ -920,30 +1453,43 @@ async def get_analysis_status(
                 "overall_risk": overall_risk
             }
 
+        # Get file info from database or in-memory
+        contract_name = db_job.filename if use_db else job["filename"]
+        created_at = db_job.created_at.isoformat() if use_db else job["created_at"]
+        completed_at = db_job.updated_at.isoformat() if use_db else job["updated_at"]
+        output_path = db_job.output_path if use_db else job.get("output_path", "")
+
         response["result"] = {
             "job_id": job_id,
-            "contract_name": job["filename"],
+            "contract_name": contract_name,
             "status": "completed",
-            "created_at": job["created_at"],
-            "completed_at": job["updated_at"],
+            "created_at": created_at,
+            "completed_at": completed_at,
             "analysis_results": analysis_results,
             "summary": summary,
             "output_files": {
-                "reviewed_contract": job.get("output_path", ""),
-                "detailed_report": job.get("output_path", "").replace(".docx", "_DETAILED_REPORT.docx"),
-                "html_summary": job.get("output_path", "").replace(".docx", "_SUMMARY.html")
+                "reviewed_contract": output_path,
+                "detailed_report": output_path.replace(".docx", "_DETAILED_REPORT.docx") if output_path else "",
+                "html_summary": output_path.replace(".docx", "_SUMMARY.html") if output_path else ""
             }
         }
 
     # Include error if failed
-    if job["status"] == "failed" and "error" in job:
-        response["message"] = job["error"]
+    if job_status == "failed":
+        if use_db and db_job.error:
+            response["message"] = db_job.error
+        elif not use_db and "error" in job:
+            response["message"] = job["error"]
 
     return response
 
 
 @app.get("/api/contracts/{job_id}/download/{report_type}")
-async def download_report(job_id: str, report_type: str):
+async def download_report(
+    job_id: str,
+    report_type: str,
+    db: DBSessionType = Depends(get_db)
+):
     """
     Download analysis report.
 
@@ -954,18 +1500,30 @@ async def download_report(job_id: str, report_type: str):
     Returns:
         Report file
     """
-    if job_id not in analysis_jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
+    # First, try to get job from database (persistent storage)
+    db_job = db.query(DBAnalysisJob).filter(DBAnalysisJob.job_id == job_id).first()
 
-    job = analysis_jobs[job_id]
+    if not db_job:
+        # Fallback to in-memory (for backward compatibility with active jobs)
+        if job_id not in analysis_jobs:
+            raise HTTPException(status_code=404, detail="Job not found")
+        job = analysis_jobs[job_id]
+        use_db = False
+    else:
+        use_db = True
 
-    if job["status"] != "completed":
+    # Check if completed
+    job_status = db_job.status if use_db else job["status"]
+    if job_status != "completed":
         raise HTTPException(
             status_code=400,
-            detail=f"Analysis not completed. Current status: {job['status']}"
+            detail=f"Analysis not completed. Current status: {job_status}"
         )
 
-    output_path = job.get("output_path")
+    # Get output path and filename
+    output_path = db_job.output_path if use_db else job.get("output_path")
+    filename = db_job.filename if use_db else job.get("filename", "contract.docx")
+
     if not output_path:
         raise HTTPException(status_code=404, detail="Output file not found")
 
@@ -973,15 +1531,15 @@ async def download_report(job_id: str, report_type: str):
     if report_type == "reviewed":
         file_path = output_path
         media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        filename = f"reviewed_{job['filename']}"
+        download_filename = f"reviewed_{filename}"
     elif report_type == "detailed":
         file_path = output_path.replace(".docx", "_DETAILED_REPORT.docx")
         media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        filename = f"detailed_report_{job['filename']}"
+        download_filename = f"detailed_report_{filename}"
     elif report_type == "html":
         file_path = output_path.replace(".docx", "_SUMMARY.html")
         media_type = "text/html"
-        filename = f"summary_{job['filename'].replace('.docx', '.html')}"
+        download_filename = f"summary_{filename.replace('.docx', '.html')}"
     else:
         raise HTTPException(status_code=400, detail="Invalid report type")
 
@@ -991,7 +1549,7 @@ async def download_report(job_id: str, report_type: str):
     return FileResponse(
         file_path,
         media_type=media_type,
-        filename=filename
+        filename=download_filename
     )
 
 
@@ -2506,7 +3064,8 @@ async def get_track_changes(
 @app.post("/api/word-addin/analyze-text")
 async def analyze_text_from_addin(
     request: WordAddinAnalyzeTextRequest,
-    user: DBUser = Depends(require_auth)
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
 ):
     """
     Analyze document text directly from Word Add-in.
@@ -2657,7 +3216,8 @@ async def analyze_text_from_addin(
 
         logger.info(f"Analysis complete: {compliant_count}/{total_clauses} compliant, overall risk: {overall_risk}")
 
-        return {
+        # Prepare results to return
+        result_data = {
             "job_id": job_id,
             "status": "completed",
             "analysis_results": transformed_results,
@@ -2673,6 +3233,23 @@ async def analyze_text_from_addin(
                 "overall_risk": overall_risk
             }
         }
+
+        # Persist analysis to database
+        db_job = DBAnalysisJob(
+            job_id=job_id,
+            user_id=user.id,
+            filename=f"Word_Document_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
+            upload_path="",  # Word add-in doesn't upload files
+            status="completed",
+            source="word_addin",
+            result_json=json.dumps(result_data)
+        )
+        db.add(db_job)
+        db.commit()
+
+        logger.info(f"Word add-in analysis persisted to database: {job_id}")
+
+        return result_data
 
     except HTTPException:
         raise

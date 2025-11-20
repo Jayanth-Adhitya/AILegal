@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, Trash2, Search } from "lucide-react";
+import { FileText, Trash2, Search, Eye, CheckCircle2, AlertCircle, Clock } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Policy } from "@/lib/types";
 import { formatDate, formatFileSize } from "@/lib/utils";
 import { policyApi } from "@/lib/api";
+import Link from "next/link";
 
 interface PolicyListProps {
   policies: Policy[];
@@ -33,8 +34,8 @@ export function PolicyList({ policies, onPolicyDeleted }: PolicyListProps) {
 
   const filteredPolicies = policies.filter(
     (policy) =>
-      policy.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      policy.type.toLowerCase().includes(searchQuery.toLowerCase())
+      policy.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (policy.policy_number?.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const handleDelete = async () => {
@@ -52,13 +53,30 @@ export function PolicyList({ policies, onPolicyDeleted }: PolicyListProps) {
     }
   };
 
+  const getStatusBadge = (status: string) => {
+    const variants = {
+      active: { color: "bg-green-100 text-green-800", icon: CheckCircle2 },
+      draft: { color: "bg-yellow-100 text-yellow-800", icon: Clock },
+      archived: { color: "bg-gray-100 text-gray-800", icon: AlertCircle },
+    };
+    const variant = variants[status as keyof typeof variants] || variants.active;
+    const Icon = variant.icon;
+
+    return (
+      <Badge variant="secondary" className={variant.color}>
+        <Icon className="mr-1 h-3 w-3" />
+        {status}
+      </Badge>
+    );
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <Input
-            placeholder="Search policies..."
+            placeholder="Search by title or policy number..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
@@ -83,12 +101,13 @@ export function PolicyList({ policies, onPolicyDeleted }: PolicyListProps) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Type</TableHead>
+                <TableHead>Title</TableHead>
+                <TableHead>Policy Number</TableHead>
                 <TableHead>Version</TableHead>
-                <TableHead>Size</TableHead>
-                <TableHead>Uploaded</TableHead>
-                <TableHead className="w-[100px]">Actions</TableHead>
+                <TableHead>Sections</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Updated</TableHead>
+                <TableHead className="w-[150px]">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -97,31 +116,42 @@ export function PolicyList({ policies, onPolicyDeleted }: PolicyListProps) {
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4 text-blue-600" />
-                      {policy.name}
+                      <Link href={`/policies/${policy.id}`} className="hover:underline">
+                        {policy.title}
+                      </Link>
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{policy.type}</Badge>
+                  <TableCell className="text-sm text-gray-600">
+                    {policy.policy_number || "N/A"}
                   </TableCell>
                   <TableCell className="text-sm text-gray-600">
                     {policy.version}
                   </TableCell>
                   <TableCell className="text-sm text-gray-600">
-                    {policy.file_size ? formatFileSize(policy.file_size) : "N/A"}
-                  </TableCell>
-                  <TableCell className="text-sm text-gray-600">
-                    {formatDate(policy.uploaded_at)}
+                    {(policy as any).section_count || 0} sections
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() =>
-                        setDeleteDialog({ open: true, policy })
-                      }
-                    >
-                      <Trash2 className="h-4 w-4 text-red-600" />
-                    </Button>
+                    {getStatusBadge(policy.status)}
+                  </TableCell>
+                  <TableCell className="text-sm text-gray-600">
+                    {formatDate(policy.updated_at)}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      <Link href={`/policies/${policy.id}`}>
+                        <Button variant="ghost" size="icon" title="View">
+                          <Eye className="h-4 w-4 text-blue-600" />
+                        </Button>
+                      </Link>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Delete"
+                        onClick={() => setDeleteDialog({ open: true, policy })}
+                      >
+                        <Trash2 className="h-4 w-4 text-red-600" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -135,7 +165,7 @@ export function PolicyList({ policies, onPolicyDeleted }: PolicyListProps) {
           <DialogHeader>
             <DialogTitle>Delete Policy</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete {deleteDialog.policy?.name}? This action cannot be undone.
+              Are you sure you want to delete &quot;{deleteDialog.policy?.title}&quot;? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

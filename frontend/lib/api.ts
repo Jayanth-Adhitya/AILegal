@@ -49,12 +49,12 @@ function handleApiError(error: unknown): never {
 // Policy API
 export const policyApi = {
   // Upload single policy file
-  async uploadPolicy(file: File): Promise<UploadResponse> {
+  async uploadPolicy(file: File): Promise<{ success: boolean; policy: Policy; parsing_status: string; message: string }> {
     try {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await api.post<UploadResponse>(
+      const response = await api.post<{ success: boolean; policy: Policy; parsing_status: string; message: string }>(
         "/api/policies/upload",
         formData,
         {
@@ -70,16 +70,39 @@ export const policyApi = {
   },
 
   // Upload multiple policy files
-  async uploadPolicies(files: File[]): Promise<UploadResponse[]> {
+  async uploadPolicies(files: File[]): Promise<{ success: boolean; policy: Policy; parsing_status: string; message: string }[]> {
     const uploads = files.map((file) => this.uploadPolicy(file));
     return Promise.all(uploads);
   },
 
   // Get all policies
-  async getPolicies(): Promise<Policy[]> {
+  async getPolicies(params?: { status?: string; search?: string }): Promise<Policy[]> {
     try {
-      const response = await api.get<{ success: boolean; policies: Policy[]; total_chunks: number; company_id: string }>("/api/policies");
+      const response = await api.get<{ success: boolean; policies: Policy[]; total: number }>("/api/policies", { params });
       return response.data.policies;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Get single policy by ID
+  async getPolicy(policyId: string): Promise<Policy> {
+    try {
+      const response = await api.get<{ success: boolean; policy: Policy }>(`/api/policies/${policyId}`);
+      return response.data.policy;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Update policy
+  async updatePolicy(policyId: string, updateData: any): Promise<Policy> {
+    try {
+      const response = await api.put<{ success: boolean; policy: Policy; message: string }>(
+        `/api/policies/${policyId}`,
+        updateData
+      );
+      return response.data.policy;
     } catch (error) {
       handleApiError(error);
     }
@@ -99,6 +122,26 @@ export const policyApi = {
     try {
       const response = await api.post<{ message: string }>(
         "/api/policies/reingest"
+      );
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Send chat message to policy chatbot
+  async sendChatMessage(
+    policyId: string,
+    message: string,
+    conversationHistory?: Array<{ role: string; content: string }>
+  ): Promise<{ response: string; policy_id: string; timestamp: string }> {
+    try {
+      const response = await api.post<{ response: string; policy_id: string; timestamp: string }>(
+        `/api/policies/${policyId}/chat`,
+        {
+          message,
+          conversation_history: conversationHistory || [],
+        }
       );
       return response.data;
     } catch (error) {

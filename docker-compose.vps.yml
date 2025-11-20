@@ -1,0 +1,190 @@
+version: '3.8'
+
+# VPS Deployment for contract.cirilla.ai
+# This is separate from Azure deployment (contracts.cirilla.ai)
+# Assumes Traefik or Nginx proxy for SSL/domain routing
+
+networks:
+  legal-agent:
+    driver: bridge
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: legal-agent-backend
+    restart: unless-stopped
+    expose:
+      - "8000"
+    networks:
+      - legal-agent
+    labels:
+      # Traefik labels (if using Traefik as reverse proxy)
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend-http.rule=Host(`api.contract.cirilla.ai`)"
+      - "traefik.http.routers.backend-http.entrypoints=web"
+      - "traefik.http.routers.backend-http.middlewares=redirect-to-https"
+      - "traefik.http.routers.backend-https.rule=Host(`api.contract.cirilla.ai`)"
+      - "traefik.http.routers.backend-https.entrypoints=websecure"
+      - "traefik.http.routers.backend-https.tls=true"
+      - "traefik.http.routers.backend-https.tls.certresolver=letsencrypt"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+    environment:
+      # Google AI Configuration
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-models/gemini-embedding-001}
+
+      # Groq API (optional)
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+
+      # Storage Paths
+      - CHROMA_DB_PATH=/app/data/chroma_db
+      - CHROMA_COLLECTION_NAME=${CHROMA_COLLECTION_NAME:-legal_policies}
+      - UPLOAD_DIR=/app/data/uploads
+      - OUTPUT_DIR=/app/data/outputs
+      - POLICIES_DIR=/app/data/policies
+      - DATABASE_PATH=/app/data/legal_ai.db
+
+      # CORS Configuration
+      - CORS_ORIGINS=${CORS_ORIGINS}
+
+      # API Configuration
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-50}
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_RELOAD=false
+
+      # AI Model Configuration
+      - TEMPERATURE=${TEMPERATURE:-0.1}
+      - MAX_OUTPUT_TOKENS=${MAX_OUTPUT_TOKENS:-8192}
+      - CHUNK_SIZE=${CHUNK_SIZE:-1000}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-200}
+      - RETRIEVAL_K=${RETRIEVAL_K:-3}
+
+      # Performance Configuration
+      - BATCH_MODE=${BATCH_MODE:-true}
+      - MAX_BATCH_SIZE=${MAX_BATCH_SIZE:-50}
+      - REQUESTS_PER_MINUTE=${REQUESTS_PER_MINUTE:-15}
+      - REQUESTS_PER_DAY=${REQUESTS_PER_DAY:-250}
+    volumes:
+      - backend_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+        - NEXT_PUBLIC_COLLAB_URL=${NEXT_PUBLIC_COLLAB_URL}
+        - APP_PORT=3001
+    container_name: legal-agent-frontend
+    restart: unless-stopped
+    expose:
+      - "3001"
+    networks:
+      - legal-agent
+    labels:
+      # Traefik labels (if using Traefik as reverse proxy)
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend-http.rule=Host(`contract.cirilla.ai`)"
+      - "traefik.http.routers.frontend-http.entrypoints=web"
+      - "traefik.http.routers.frontend-http.middlewares=redirect-to-https"
+      - "traefik.http.routers.frontend-https.rule=Host(`contract.cirilla.ai`)"
+      - "traefik.http.routers.frontend-https.entrypoints=websecure"
+      - "traefik.http.routers.frontend-https.tls=true"
+      - "traefik.http.routers.frontend-https.tls.certresolver=letsencrypt"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3001"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+      - NEXT_PUBLIC_COLLAB_URL=${NEXT_PUBLIC_COLLAB_URL}
+      - PORT=3001
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  collaboration-server:
+    build:
+      context: ./collaboration-server
+      dockerfile: Dockerfile
+    container_name: legal-agent-collab
+    restart: unless-stopped
+    expose:
+      - "1234"
+    networks:
+      - legal-agent
+    labels:
+      # Traefik labels (if using Traefik as reverse proxy)
+      - "traefik.enable=true"
+      - "traefik.http.routers.collab-http.rule=Host(`collab.contract.cirilla.ai`)"
+      - "traefik.http.routers.collab-http.entrypoints=web"
+      - "traefik.http.routers.collab-http.middlewares=redirect-to-https"
+      - "traefik.http.routers.collab-https.rule=Host(`collab.contract.cirilla.ai`)"
+      - "traefik.http.routers.collab-https.entrypoints=websecure"
+      - "traefik.http.routers.collab-https.tls=true"
+      - "traefik.http.routers.collab-https.tls.certresolver=letsencrypt"
+      - "traefik.http.services.collab.loadbalancer.server.port=1234"
+    environment:
+      - NODE_ENV=production
+      - COLLAB_PORT=1234
+      - FASTAPI_URL=${FASTAPI_INTERNAL_URL:-http://backend:8000}
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:1234/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  word-addin:
+    build:
+      context: ./word-addin
+      dockerfile: Dockerfile
+    container_name: legal-agent-word
+    restart: unless-stopped
+    expose:
+      - "3001"
+    networks:
+      - legal-agent
+    labels:
+      # Traefik labels (if using Traefik as reverse proxy)
+      - "traefik.enable=true"
+      - "traefik.http.routers.word-http.rule=Host(`word.contract.cirilla.ai`)"
+      - "traefik.http.routers.word-http.entrypoints=web"
+      - "traefik.http.routers.word-http.middlewares=redirect-to-https"
+      - "traefik.http.routers.word-https.rule=Host(`word.contract.cirilla.ai`)"
+      - "traefik.http.routers.word-https.entrypoints=websecure"
+      - "traefik.http.routers.word-https.tls=true"
+      - "traefik.http.routers.word-https.tls.certresolver=letsencrypt"
+      - "traefik.http.services.word.loadbalancer.server.port=3001"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  backend_data:
+    driver: local

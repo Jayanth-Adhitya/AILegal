@@ -74,6 +74,12 @@ ENV NODE_ENV=production
 ARG APP_PORT=3001
 ENV PORT=${APP_PORT}
 
+# Runtime environment variables (needed for client-side code)
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_COLLAB_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+ENV NEXT_PUBLIC_COLLAB_URL=${NEXT_PUBLIC_COLLAB_URL:-http://localhost:1234}
+
 # Create a non-root user
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs

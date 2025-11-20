@@ -28,6 +28,7 @@ wheels/
 .env
 .env.local
 .env.production
+.env.azure.local
 
 # Database
 legal_ai.db
@@ -74,3 +75,6 @@ openspec/changes/*/draft/
 openspec/.openspec-cache/
  .claude/
  *.md
+
+# Testing 
+llm_testing_tool 
