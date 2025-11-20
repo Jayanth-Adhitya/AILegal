@@ -13,9 +13,9 @@ RUN if [ -f package-lock.json ]; then npm ci --production; else npm install --pr
 # Copy source code
 COPY . .
 
-# Create non-root user
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 collabuser && \
+# Create non-root user (Alpine Linux syntax)
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -u 1001 -S -G nodejs collabuser && \
     chown -R collabuser:nodejs /app
 
 USER collabuser
