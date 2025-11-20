@@ -660,6 +660,95 @@ async def get_current_user(
         raise HTTPException(status_code=500, detail="Failed to get user info")
 
 
+@app.get("/api/location")
+async def get_user_location(request: Request):
+    """
+    Get user's location based on IP address.
+
+    Returns:
+        Country code, country name, and region code if available.
+    """
+    try:
+        from .services.geolocation_service import get_geo_service
+        from .core.config import REGION_CONFIG
+
+        # Get client IP from request
+        # Try X-Forwarded-For header first (for proxies/load balancers)
+        client_ip = request.headers.get("X-Forwarded-For")
+        if client_ip:
+            # X-Forwarded-For can contain multiple IPs, take the first one
+            client_ip = client_ip.split(",")[0].strip()
+        else:
+            # Fall back to direct client IP
+            client_ip = request.client.host if request.client else None
+
+        if not client_ip:
+            return {
+                "success": False,
+                "country_code": None,
+                "country_name": None,
+                "region_code": None,
+                "region_name": None,
+                "message": "Could not determine IP address"
+            }
+
+        # Get geolocation service
+        geo_service = get_geo_service()
+
+        if not geo_service.is_available():
+            return {
+                "success": True,
+                "country_code": None,
+                "country_name": None,
+                "region_code": None,
+                "region_name": None,
+                "message": "Geolocation service not available",
+                "ip": client_ip
+            }
+
+        # Get country from IP
+        country_code = geo_service.get_country_from_ip(client_ip)
+
+        # Get region from IP
+        region_code = geo_service.get_region_from_ip(client_ip)
+
+        # Get region name if available
+        region_name = None
+        if region_code and region_code in REGION_CONFIG:
+            region_name = REGION_CONFIG[region_code]["metadata"]["region_name"]
+
+        # Map country code to country name (basic mapping)
+        country_names = {
+            "AE": "United Arab Emirates",
+            "SA": "Saudi Arabia",
+            "US": "United States",
+            "GB": "United Kingdom",
+            "IN": "India",
+            # Add more as needed
+        }
+        country_name = country_names.get(country_code, country_code if country_code else None)
+
+        return {
+            "success": True,
+            "country_code": country_code,
+            "country_name": country_name,
+            "region_code": region_code,
+            "region_name": region_name,
+            "ip": client_ip
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting user location: {e}")
+        return {
+            "success": False,
+            "country_code": None,
+            "country_name": None,
+            "region_code": None,
+            "region_name": None,
+            "error": str(e)
+        }
+
+
 # Policy Management Endpoints
 
 @app.post("/api/policies/upload")

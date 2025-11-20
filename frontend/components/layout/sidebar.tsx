@@ -19,6 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
+import { LocationIndicator } from "./location-indicator";
 
 const navigation = [
   {
@@ -165,6 +166,9 @@ export function Sidebar() {
           <Settings className="h-5 w-5" />
           Settings
         </Link>
+
+        {/* Location Indicator */}
+        <LocationIndicator />
 
         {/* API Status */}
         <div className="rounded-lg bg-yellow-200/30 p-3">
