@@ -1610,51 +1610,6 @@ async def ingest_policies(background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/policies/upload")
-async def upload_policy(file: UploadFile = File(...)):
-    """
-    Upload a policy file to the policies directory.
-
-    Args:
-        file: Policy file (.txt, .md, or .pdf)
-
-    Returns:
-        Upload status
-    """
-    try:
-        # Validate file type
-        if not file.filename.endswith(('.txt', '.md', '.pdf')):
-            raise HTTPException(
-                status_code=400,
-                detail="Only .txt, .md, and .pdf files are supported"
-            )
-
-        # Save file to policies directory
-        policy_dir = Path(settings.policies_dir)
-        policy_dir.mkdir(parents=True, exist_ok=True)
-
-        file_path = policy_dir / file.filename
-        content = await file.read()
-
-        with open(file_path, "wb") as f:
-            f.write(content)
-
-        logger.info(f"Policy uploaded: {file.filename}")
-
-        return {
-            "filename": file.filename,
-            "file_path": str(file_path),
-            "file_size": len(content),
-            "message": "Policy uploaded successfully"
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error uploading policy: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.get("/api/policies")
 async def list_policies():
     """
