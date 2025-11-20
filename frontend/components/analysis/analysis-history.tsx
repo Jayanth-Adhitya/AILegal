@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FileText, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, Monitor, FileCode } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
+import { API_BASE_URL } from "@/lib/api";
 
 interface AnalysisSummary {
   total_clauses: number;
@@ -65,8 +66,7 @@ export function AnalysisHistory() {
         params.append("source", sourceFilter);
       }
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const response = await fetch(`${apiUrl}/api/analysis/history?${params}`, {
+      const response = await fetch(`${API_BASE_URL}/api/analysis/history?${params}`, {
         credentials: "include",
       });
 
