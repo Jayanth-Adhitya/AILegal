@@ -116,10 +116,51 @@ app.add_middleware(
 )
 
 
+# Regional Knowledge Base Middleware
+@app.middleware("http")
+async def inject_region_context(request: Request, call_next):
+    """
+    Inject region_code into request state based on client IP.
+
+    Extracts client IP from request headers (respecting proxy headers),
+    uses GeoLocationService to detect region, and stores result in request.state.
+    """
+    from .services.geolocation_service import get_geo_service
+
+    # Extract client IP (respect proxy headers)
+    client_ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    if not client_ip:
+        client_ip = request.headers.get("X-Real-IP", "")
+    if not client_ip and request.client:
+        client_ip = request.client.host
+
+    # Detect region from IP
+    region_code = None
+    try:
+        if client_ip:
+            geo_service = get_geo_service()
+            region_code = geo_service.get_region_from_ip(client_ip)
+    except Exception as e:
+        logger.debug(f"Error detecting region for IP {client_ip}: {e}")
+
+    # Store in request state
+    request.state.region_code = region_code
+    request.state.client_ip = client_ip
+
+    # Log for observability (debug level to avoid log spam)
+    if region_code:
+        logger.debug(f"Request from IP {client_ip} → region {region_code}")
+    else:
+        logger.debug(f"Request from IP {client_ip} → no regional KB")
+
+    response = await call_next(request)
+    return response
+
+
 # Startup event to initialize database
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on application startup."""
+    """Initialize database and regional knowledge bases on application startup."""
     logger.info("🚀 Starting AI Legal Assistant API...")
     try:
         init_db()
@@ -134,6 +175,55 @@ async def startup_event():
         logger.info("✅ Collaboration service started")
     except Exception as e:
         logger.error(f"❌ Failed to start collaboration service: {e}", exc_info=True)
+
+    # Ingest regional knowledge bases
+    try:
+        from .core.config import REGION_CONFIG, get_enabled_regions, settings as config_settings
+        from .vector_store.embeddings import PolicyEmbeddings
+
+        if not config_settings.regional_kb_enabled:
+            logger.info("ℹ️  Regional knowledge bases disabled (REGIONAL_KB_ENABLED=false)")
+        else:
+            enabled_regions = get_enabled_regions()
+            if not enabled_regions:
+                logger.info("ℹ️  No enabled regional knowledge bases configured")
+            else:
+                logger.info(f"📚 Ingesting regional knowledge bases for: {', '.join(enabled_regions)}")
+
+                embeddings = PolicyEmbeddings()
+                total_chunks = 0
+
+                for region_code in enabled_regions:
+                    region_config = REGION_CONFIG[region_code]
+                    data_directory = region_config["data_directory"]
+
+                    logger.info(f"🌍 Processing region: {region_config['metadata']['region_name']} ({region_code})")
+
+                    try:
+                        chunks = embeddings.ingest_regional_directory(
+                            region_code=region_code,
+                            directory_path=data_directory
+                        )
+
+                        if chunks > 0:
+                            total_chunks += chunks
+                            logger.info(f"✅ Ingested {chunks} chunks for {region_code}")
+                        else:
+                            logger.info(f"ℹ️  Region {region_code} already populated or no documents found")
+
+                    except Exception as e:
+                        logger.error(f"❌ Failed to ingest region {region_code}: {e}", exc_info=True)
+                        # Continue with other regions
+
+                if total_chunks > 0:
+                    logger.info(f"✅ Regional knowledge bases ready: {total_chunks} total chunks ingested")
+                else:
+                    logger.info("ℹ️  All regional knowledge bases already populated")
+
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize regional knowledge bases: {e}", exc_info=True)
+        logger.error("⚠️  Regional feature will be unavailable, but application will continue")
+        # Don't crash the application, just log the error
 
 
 # Shutdown event to clean up resources
@@ -369,11 +459,14 @@ async def register(
 
         if result["success"]:
             # Set session cookie (HttpOnly for security)
+            # Use domain=".cirilla.ai" to work across all subdomains
             response.set_cookie(
                 key="session_id",
                 value=result["session_id"],
                 httponly=True,
-                samesite="lax",
+                secure=True,  # Require HTTPS
+                samesite="none",  # Allow cross-subdomain
+                domain=".cirilla.ai",  # Share across all *.cirilla.ai
                 max_age=7 * 24 * 60 * 60  # 7 days
             )
 
@@ -382,7 +475,9 @@ async def register(
                 key="ws_token",
                 value=result["session_id"],
                 httponly=False,  # Allow JS access for WebSocket
-                samesite="lax",
+                secure=True,  # Require HTTPS
+                samesite="none",  # Allow cross-subdomain
+                domain=".cirilla.ai",  # Share across all *.cirilla.ai
                 max_age=7 * 24 * 60 * 60  # 7 days
             )
 
@@ -418,11 +513,14 @@ async def login(
 
         if result["success"]:
             # Set session cookie (HttpOnly for security)
+            # Use domain=".cirilla.ai" to work across all subdomains
             response.set_cookie(
                 key="session_id",
                 value=result["session_id"],
                 httponly=True,
-                samesite="lax",
+                secure=True,  # Require HTTPS
+                samesite="none",  # Allow cross-subdomain
+                domain=".cirilla.ai",  # Share across all *.cirilla.ai
                 max_age=7 * 24 * 60 * 60  # 7 days
             )
 
@@ -431,7 +529,9 @@ async def login(
                 key="ws_token",
                 value=result["session_id"],
                 httponly=False,  # Allow JS access for WebSocket
-                samesite="lax",
+                secure=True,  # Require HTTPS
+                samesite="none",  # Allow cross-subdomain
+                domain=".cirilla.ai",  # Share across all *.cirilla.ai
                 max_age=7 * 24 * 60 * 60  # 7 days
             )
 
@@ -956,6 +1056,7 @@ Provide specific references to sections when applicable."""
 @app.post("/api/contracts/upload", response_model=AnalysisResponse)
 async def upload_contract(
     file: UploadFile = File(...),
+    request: Request = None,
     background_tasks: BackgroundTasks = BackgroundTasks(),
     user: DBUser = Depends(require_auth),
     db: DBSessionType = Depends(get_db)
@@ -994,6 +1095,9 @@ async def upload_contract(
         with open(upload_path, "wb") as f:
             f.write(content)
 
+        # Get region from request state (injected by middleware)
+        region_code = getattr(request.state, "region_code", None) if request else None
+
         # Create database record
         db_job = DBAnalysisJob(
             job_id=job_id,
@@ -1015,7 +1119,8 @@ async def upload_contract(
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
             "user_id": user.id,
-            "company_name": user.company_name
+            "company_name": user.company_name,
+            "region_code": region_code  # Store region for background task
         }
         analysis_jobs[job_id] = job_data
 
@@ -1268,10 +1373,14 @@ def run_contract_analysis(job_id: str, contract_path: str):
         # Get user for company_id
         user = db.query(DBUser).filter(DBUser.id == db_job.user_id).first()
         company_id = user.company_id if user else None
-        logger.info(f"Using company-specific policies for company: {company_id}")
 
-        # Initialize analyzer with company_id for user-specific policy retrieval
-        analyzer = ContractAnalyzer(company_id=company_id)
+        # Get region_code from job data
+        region_code = analysis_jobs.get(job_id, {}).get("region_code")
+
+        logger.info(f"Using company-specific policies for company: {company_id}{' region: ' + region_code if region_code else ''}")
+
+        # Initialize analyzer with company_id and region_code
+        analyzer = ContractAnalyzer(company_id=company_id, region_code=region_code)
 
         # Define output path
         output_path = Path(settings.output_dir) / f"{job_id}_reviewed.docx"
@@ -3774,6 +3883,78 @@ async def check_document_access(
         "user_email": user.email,
         "access": True
     }
+
+
+# ===== Regional Knowledge Base Debug Endpoint =====
+
+@app.get("/api/debug/regional-kb-info")
+async def get_regional_kb_info(
+    request: Request,
+    user: DBUser = Depends(require_auth)
+):
+    """
+    Debug endpoint to view regional knowledge base information.
+
+    Returns:
+        Regional KB status, detected region, collection statistics
+    """
+    try:
+        from .core.config import REGION_CONFIG, get_enabled_regions, settings as config_settings
+        from .vector_store.embeddings import PolicyEmbeddings
+        from .services.geolocation_service import get_geo_service
+
+        # Get detected region from request state
+        region_code = getattr(request.state, "region_code", None)
+        client_ip = getattr(request.state, "client_ip", None)
+
+        # Get GeoIP service status
+        geo_service = get_geo_service()
+        geolocation_available = geo_service.is_available()
+
+        # Get enabled regions
+        enabled_regions = get_enabled_regions()
+
+        # Get collection statistics
+        embeddings = PolicyEmbeddings()
+        collection_stats = {}
+
+        # Global collection stats
+        try:
+            global_stats = embeddings.get_collection_stats()
+            collection_stats["global"] = global_stats
+        except Exception as e:
+            collection_stats["global"] = {"error": str(e)}
+
+        # Regional collection stats
+        for region in enabled_regions:
+            try:
+                regional_stats = embeddings.get_regional_collection_stats(region)
+                collection_stats[region] = regional_stats
+            except Exception as e:
+                collection_stats[region] = {"error": str(e)}
+
+        return {
+            "regional_kb_enabled": config_settings.regional_kb_enabled,
+            "detected_region": region_code,
+            "client_ip": client_ip,
+            "available_regions": enabled_regions,
+            "region_config": {
+                region: {
+                    "region_name": REGION_CONFIG[region]["metadata"]["region_name"],
+                    "legal_jurisdiction": REGION_CONFIG[region]["metadata"]["legal_jurisdiction"],
+                    "countries": REGION_CONFIG[region]["countries"],
+                    "enabled": REGION_CONFIG[region]["enabled"]
+                }
+                for region in enabled_regions
+            },
+            "collection_stats": collection_stats,
+            "geolocation_database_loaded": geolocation_available,
+            "global_weight_multiplier": config_settings.regional_global_weight
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting regional KB info: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
