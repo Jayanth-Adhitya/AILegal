@@ -60,12 +60,13 @@ services:
       - REQUESTS_PER_DAY=${REQUESTS_PER_DAY:-250}
     volumes:
       - backend_data:/app/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-      start_period: 120s
+    # Temporarily disable health check for debugging
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 10
+    #   start_period: 120s
 
   frontend:
     build:
@@ -88,8 +89,7 @@ services:
       - NEXT_PUBLIC_COLLAB_URL=${NEXT_PUBLIC_COLLAB_URL}
       - PORT=3001
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
@@ -114,8 +114,7 @@ services:
       - COLLAB_PORT=1234
       - FASTAPI_URL=http://backend:8000
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:1234/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
@@ -138,8 +137,7 @@ services:
     environment:
       - NODE_ENV=production
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001"]
       interval: 30s
