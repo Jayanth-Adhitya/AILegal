@@ -72,6 +72,7 @@ class AnalysisJob(Base):
     upload_path = Column(String, nullable=False)
     output_path = Column(String)
     status = Column(String, nullable=False, index=True)
+    source = Column(String, nullable=False, default='web_upload', index=True)  # 'web_upload' or 'word_addin'
     created_at = Column(DateTime, default=datetime.now, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
     result_json = Column(Text)  # Store full analysis results as JSON
@@ -89,6 +90,7 @@ class AnalysisJob(Base):
             "upload_path": self.upload_path,
             "output_path": self.output_path,
             "status": self.status,
+            "source": self.source,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "error": self.error
@@ -374,6 +376,160 @@ class DocumentCollaborator(Base):
         }
 
 
+# ===== Policy Management Models =====
+
+class Policy(Base):
+    """Policy document model for structured policy storage."""
+
+    __tablename__ = "policies"
+
+    id = Column(String, primary_key=True)
+    company_id = Column(String, ForeignKey("users.company_id", ondelete="CASCADE"), nullable=False, index=True)
+    created_by_user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Core metadata
+    title = Column(String(500), nullable=False)
+    policy_number = Column(String(100), nullable=True)
+    version = Column(String(50), nullable=False)
+    effective_date = Column(DateTime, nullable=True)
+
+    # File information
+    original_filename = Column(String(500), nullable=False)
+    file_path = Column(String(1000), nullable=False)
+    file_size = Column(Integer, nullable=True)
+    file_type = Column(String(10), nullable=False)  # 'pdf', 'txt', 'md'
+
+    # Content
+    full_text = Column(Text, nullable=False)
+    summary = Column(Text, nullable=True)
+
+    # Status and metadata
+    status = Column(String(50), default='active', nullable=False)  # 'active', 'archived', 'draft'
+    tags = Column(Text, nullable=True)  # JSON array stored as text
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+    # Relationships
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    sections = relationship("PolicySection", back_populates="policy", cascade="all, delete-orphan", order_by="PolicySection.section_order")
+    versions = relationship("PolicyVersion", back_populates="policy", cascade="all, delete-orphan", order_by="PolicyVersion.version_number.desc()")
+
+    def to_dict(self, include_sections=False, include_versions=False):
+        """Convert policy to dictionary."""
+        result = {
+            "id": self.id,
+            "company_id": self.company_id,
+            "created_by_user_id": self.created_by_user_id,
+            "title": self.title,
+            "policy_number": self.policy_number,
+            "version": self.version,
+            "effective_date": self.effective_date.isoformat() if self.effective_date else None,
+            "original_filename": self.original_filename,
+            "file_path": self.file_path,
+            "file_size": self.file_size,
+            "file_type": self.file_type,
+            "full_text": self.full_text,
+            "summary": self.summary,
+            "status": self.status,
+            "tags": self.tags,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "created_by": self.created_by.to_dict() if self.created_by else None,
+        }
+
+        if include_sections and self.sections:
+            result["sections"] = [section.to_dict() for section in self.sections]
+
+        if include_versions and self.versions:
+            result["versions"] = [version.to_dict() for version in self.versions]
+
+        return result
+
+
+class PolicySection(Base):
+    """Individual section within a policy document."""
+
+    __tablename__ = "policy_sections"
+
+    id = Column(String, primary_key=True)
+    policy_id = Column(String, ForeignKey("policies.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Section details
+    section_number = Column(String(50), nullable=True)
+    section_title = Column(String(500), nullable=True)
+    section_content = Column(Text, nullable=False)
+    section_order = Column(Integer, nullable=False)  # For maintaining order
+
+    # Metadata
+    section_type = Column(String(100), nullable=True)  # 'clause', 'definition', 'requirement', etc.
+    parent_section_id = Column(String, ForeignKey("policy_sections.id", ondelete="SET NULL"), nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+    # Relationships
+    policy = relationship("Policy", back_populates="sections")
+    parent_section = relationship("PolicySection", remote_side=[id], backref="subsections")
+
+    def to_dict(self, include_subsections=False):
+        """Convert section to dictionary."""
+        result = {
+            "id": self.id,
+            "policy_id": self.policy_id,
+            "section_number": self.section_number,
+            "section_title": self.section_title,
+            "section_content": self.section_content,
+            "section_order": self.section_order,
+            "section_type": self.section_type,
+            "parent_section_id": self.parent_section_id,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+        }
+
+        if include_subsections and hasattr(self, 'subsections') and self.subsections:
+            result["subsections"] = [sub.to_dict() for sub in self.subsections]
+
+        return result
+
+
+class PolicyVersion(Base):
+    """Version history snapshot for policy edits."""
+
+    __tablename__ = "policy_versions"
+
+    id = Column(String, primary_key=True)
+    policy_id = Column(String, ForeignKey("policies.id", ondelete="CASCADE"), nullable=False, index=True)
+    version_number = Column(Integer, nullable=False)
+
+    # Snapshot of policy at this version
+    snapshot_data = Column(Text, nullable=False)  # JSON
+
+    # Change metadata
+    changed_by_user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    change_description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    # Relationships
+    policy = relationship("Policy", back_populates="versions")
+    changed_by = relationship("User", foreign_keys=[changed_by_user_id])
+
+    def to_dict(self):
+        """Convert version to dictionary."""
+        return {
+            "id": self.id,
+            "policy_id": self.policy_id,
+            "version_number": self.version_number,
+            "snapshot_data": self.snapshot_data,
+            "changed_by_user_id": self.changed_by_user_id,
+            "change_description": self.change_description,
+            "created_at": self.created_at.isoformat(),
+            "changed_by": self.changed_by.to_dict() if self.changed_by else None,
+        }
+
+
 # Create indexes for common queries
 Index('idx_sessions_user_expires', Session.user_id, Session.expires_at)
 Index('idx_jobs_user_created', AnalysisJob.user_id, AnalysisJob.created_at.desc())
@@ -386,3 +542,10 @@ Index('idx_document_versions_doc_version', DocumentVersion.document_id, Document
 Index('idx_document_comments_doc', DocumentComment.document_id, DocumentComment.created_at)
 Index('idx_document_changes_doc', DocumentChange.document_id, DocumentChange.created_at)
 Index('idx_document_collaborators_doc_user', DocumentCollaborator.document_id, DocumentCollaborator.user_id)
+
+# Policy indexes
+Index('idx_policies_company_created', Policy.company_id, Policy.created_at.desc())
+Index('idx_policies_status_created', Policy.status, Policy.created_at.desc())
+Index('idx_policies_company_policy_number', Policy.company_id, Policy.policy_number)
+Index('idx_policy_sections_policy_order', PolicySection.policy_id, PolicySection.section_order)
+Index('idx_policy_versions_policy_version', PolicyVersion.policy_id, PolicyVersion.version_number.desc())
