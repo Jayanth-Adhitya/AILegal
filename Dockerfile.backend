@@ -20,11 +20,25 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY src/ ./src/
 
+# Copy scripts for embedding setup and migrations
+COPY scripts/ ./scripts/
+COPY apply_document_migrations.py ./
+
+# Copy regional knowledge base documents
+COPY Data/regional/ ./Data/regional/
+
+# Copy GeoLite2 database for geolocation
+COPY geolite2/ ./geolite2/
+
 # Create necessary directories
 RUN mkdir -p /app/data/uploads \
     /app/data/outputs \
     /app/data/policies \
-    /app/data/chroma_db
+    /app/data/chroma_db \
+    /app/geolite2
+
+# Make startup script executable
+RUN chmod +x scripts/docker-startup.sh
 
 # Configure custom port (use 8080 instead of default 8000)
 ARG API_PORT=8080
@@ -37,5 +51,5 @@ EXPOSE ${API_PORT}
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://127.0.0.1:8000/health || exit 1
 
-# Run the application on custom port
-CMD python -m uvicorn src.api:app --host 0.0.0.0 --port ${API_PORT}
+# Run the startup script (handles embeddings + migrations + starts server)
+CMD ["./scripts/docker-startup.sh"]

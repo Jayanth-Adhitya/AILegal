@@ -15,10 +15,14 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Google AI Configuration
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      # Google AI Configuration (optional - falls back to local embeddings if not set)
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-models/gemini-embedding-001}
+
+      # Local Embeddings Configuration (automatic fallback if no GOOGLE_API_KEY)
+      - USE_LOCAL_EMBEDDINGS=${USE_LOCAL_EMBEDDINGS:-false}
+      - LOCAL_EMBEDDING_MODEL=${LOCAL_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
 
       # Storage Paths (Azure Files mounted at /app/data)
       - CHROMA_DB_PATH=/app/data/chroma_db
