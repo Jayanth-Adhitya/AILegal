@@ -21,23 +21,39 @@ services:
       - "traefik.enable=true"
       - "traefik.http.services.backend.loadbalancer.server.port=8000"
     environment:
+      # Google AI Configuration
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-models/gemini-embedding-001}
+
+      # Groq API (optional)
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+
+      # Storage Paths
       - CHROMA_DB_PATH=/app/data/chroma_db
       - CHROMA_COLLECTION_NAME=${CHROMA_COLLECTION_NAME:-legal_policies}
       - UPLOAD_DIR=/app/data/uploads
       - OUTPUT_DIR=/app/data/outputs
       - POLICIES_DIR=/app/data/policies
+      - DATABASE_PATH=/app/data/legal_ai.db
+
+      # CORS Configuration - CRITICAL for domain access
+      - CORS_ORIGINS=${CORS_ORIGINS}
+
+      # API Configuration
       - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-50}
       - API_HOST=0.0.0.0
       - API_PORT=8000
       - API_RELOAD=false
+
+      # AI Model Configuration
       - TEMPERATURE=${TEMPERATURE:-0.1}
       - MAX_OUTPUT_TOKENS=${MAX_OUTPUT_TOKENS:-8192}
       - CHUNK_SIZE=${CHUNK_SIZE:-1000}
       - CHUNK_OVERLAP=${CHUNK_OVERLAP:-200}
       - RETRIEVAL_K=${RETRIEVAL_K:-3}
+
+      # Performance Configuration
       - BATCH_MODE=${BATCH_MODE:-true}
       - MAX_BATCH_SIZE=${MAX_BATCH_SIZE:-50}
       - REQUESTS_PER_MINUTE=${REQUESTS_PER_MINUTE:-15}
@@ -56,8 +72,8 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       args:
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-        - NEXT_PUBLIC_COLLAB_URL=${NEXT_PUBLIC_COLLAB_URL:-}
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+        - NEXT_PUBLIC_COLLAB_URL=${NEXT_PUBLIC_COLLAB_URL}
         - APP_PORT=3001
     restart: unless-stopped
     expose:
@@ -68,8 +84,8 @@ services:
       - "traefik.enable=true"
       - "traefik.http.services.frontend.loadbalancer.server.port=3001"
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://backend:8000}
-      - NEXT_PUBLIC_COLLAB_URL=${NEXT_PUBLIC_COLLAB_URL:-}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+      - NEXT_PUBLIC_COLLAB_URL=${NEXT_PUBLIC_COLLAB_URL}
       - PORT=3001
     depends_on:
       backend:
@@ -92,14 +108,6 @@ services:
       - coolify
     labels:
       - "traefik.enable=true"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
-      - "traefik.http.routers.http-0-pwgk00soogosso0oos80o008-collaboration-server.entryPoints=http"
-      - "traefik.http.routers.http-0-pwgk00soogosso0oos80o008-collaboration-server.middlewares=redirect-to-https"
-      - "traefik.http.routers.http-0-pwgk00soogosso0oos80o008-collaboration-server.rule=Host(`collab.ailegal.cirilla.ai`) && PathPrefix(`/`)"
-      - "traefik.http.routers.https-0-pwgk00soogosso0oos80o008-collaboration-server.entryPoints=https"
-      - "traefik.http.routers.https-0-pwgk00soogosso0oos80o008-collaboration-server.rule=Host(`collab.ailegal.cirilla.ai`) && PathPrefix(`/`)"
-      - "traefik.http.routers.https-0-pwgk00soogosso0oos80o008-collaboration-server.tls=true"
-      - "traefik.http.routers.https-0-pwgk00soogosso0oos80o008-collaboration-server.tls.certresolver=letsencrypt"
       - "traefik.http.services.collaboration-server.loadbalancer.server.port=1234"
     environment:
       - NODE_ENV=production
