@@ -35,7 +35,7 @@ EXPOSE ${API_PORT}
 
 # Health check - use 127.0.0.1 (IPv4) instead of localhost to avoid IPv6 issues
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://127.0.0.1:8080/health || exit 1
+    CMD curl -f http://127.0.0.1:8000/health || exit 1
 
 # Run the application on custom port
 CMD python -m uvicorn src.api:app --host 0.0.0.0 --port ${API_PORT}
