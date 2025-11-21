@@ -33,7 +33,7 @@ const navigation = [
     icon: MessageSquare,
   },
   {
-    name: "Documents",
+    name: "Doc Editor",
     href: "/documents",
     icon: FileEdit,
   },
