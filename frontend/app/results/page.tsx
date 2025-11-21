@@ -13,7 +13,7 @@ export default function ResultsListPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
             <History className="h-8 w-8" />
-            Contract Management
+            History
           </h1>
           <p className="mt-2 text-gray-600">
             View and manage all your contract analysis results from web uploads and Word add-in
