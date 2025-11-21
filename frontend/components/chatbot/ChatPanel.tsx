@@ -23,7 +23,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ jobId, onClose }) => {
     {
       id: "welcome",
       role: "assistant",
-      content: "Hi there! I've reviewed your contract analysis. What would you like to know about it?",
+      content: "Hi! I'm Cirilla AI, your contract assistant. I've reviewed your contract analysis. What would you like to know about it?",
       timestamp: new Date(),
     },
   ]);
@@ -167,17 +167,17 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ jobId, onClose }) => {
   };
 
   return (
-    <div className="flex h-[600px] w-[400px] flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
+    <div className="flex h-[600px] w-[400px] flex-col overflow-hidden rounded-lg bg-white shadow-dual-md">
       {/* Header */}
-      <div className="flex items-center justify-between border-b bg-blue-600 p-4 text-white">
+      <div className="flex items-center justify-between border-b bg-gradient-to-r from-yellow-300 to-yellow-400 p-4 text-gray-900">
         <div>
-          <h3 className="text-lg font-semibold">Contract Assistant</h3>
+          <h3 className="text-lg font-semibold">Cirilla AI</h3>
           <p className="text-sm opacity-90">Ask about your contract analysis</p>
         </div>
         {onClose && (
           <button
             onClick={onClose}
-            className="rounded-full p-1 hover:bg-blue-700"
+            className="rounded-full p-1 hover:bg-yellow-500/30 transition-colors"
             aria-label="Close chat"
           >
             <X className="h-5 w-5" />
@@ -198,11 +198,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ jobId, onClose }) => {
           {isLoading && (
             <div className="flex items-center space-x-2 text-gray-500">
               <div className="flex space-x-1">
-                <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.3s]"></div>
-                <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.15s]"></div>
-                <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400"></div>
+                <div className="h-2 w-2 animate-bounce rounded-full bg-yellow-400 [animation-delay:-0.3s]"></div>
+                <div className="h-2 w-2 animate-bounce rounded-full bg-yellow-400 [animation-delay:-0.15s]"></div>
+                <div className="h-2 w-2 animate-bounce rounded-full bg-yellow-400"></div>
               </div>
-              <span className="text-sm">Assistant is typing...</span>
+              <span className="text-sm">Cirilla is typing...</span>
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -219,7 +219,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ jobId, onClose }) => {
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Type your question..."
-            className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:border-yellow-400 focus:outline-none focus:ring-1 focus:ring-yellow-400"
             disabled={isLoading}
           />
 
@@ -232,7 +232,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ jobId, onClose }) => {
           <button
             onClick={handleSendMessage}
             disabled={!inputValue.trim() || isLoading}
-            className="rounded-lg bg-blue-600 p-2 text-white transition-colors hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            className="rounded-lg bg-gradient-to-r from-yellow-400 to-yellow-500 p-2 text-gray-900 transition-all hover:from-yellow-500 hover:to-yellow-600 disabled:bg-gray-400 disabled:cursor-not-allowed disabled:from-gray-400 disabled:to-gray-400"
             aria-label="Send message"
           >
             <Send className="h-5 w-5" />
