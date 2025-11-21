@@ -20,8 +20,9 @@ class PolicyRetriever:
 
         Args:
             collection_name: Optional specific collection name to use
-            company_id: Optional company ID to use for user-specific collection
+            company_id: Optional company ID to filter policies by company
         """
+        self.company_id = company_id
         # Initialize embedding model (local or API-based) - same as PolicyEmbeddings
         if settings.use_local_embeddings:
             from .embeddings import LocalEmbeddings
@@ -89,8 +90,14 @@ class PolicyRetriever:
             }
 
             # Add metadata filter if provided
-            if filter_metadata:
-                query_params["where"] = filter_metadata
+            where_clause = filter_metadata.copy() if filter_metadata else {}
+
+            # Always filter by company_id if set
+            if self.company_id:
+                where_clause["company_id"] = self.company_id
+
+            if where_clause:
+                query_params["where"] = where_clause
 
             results = self.collection.query(**query_params)
 
