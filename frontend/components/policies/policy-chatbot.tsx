@@ -117,7 +117,7 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
   const isInputValid = input.trim().length > 0 && input.length <= 5000;
 
   return (
-    <Card className="h-[calc(100vh-300px)] flex flex-col">
+    <Card className="flex flex-col">
       <CardHeader className="border-b">
         <CardTitle className="flex items-center gap-2">
           <img
@@ -129,51 +129,49 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
         </CardTitle>
       </CardHeader>
 
-      <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
+      <CardContent className="p-6 overflow-hidden">
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div className="space-y-4">
           {messages.length === 0 ? (
-            <div className="flex items-center justify-center min-h-full max-w-full px-4">
-              <div className="flex items-center gap-8 w-full max-w-5xl">
-                {/* Left side - Cirilla Image */}
-                <div className="flex-shrink-0">
-                  <img
-                    src="/assets/cirilla_bot/cirilla-bot-analyze.png"
-                    alt="Cirilla AI"
-                    className="h-48 w-48 object-contain"
-                  />
+            <div className="flex items-center gap-8 w-full">
+              {/* Left side - Cirilla Image */}
+              <div className="flex-shrink-0">
+                <img
+                  src="/assets/cirilla_bot/cirilla-bot-analyze.png"
+                  alt="Cirilla AI"
+                  className="h-56 w-56 object-contain"
+                />
+              </div>
+
+              {/* Right side - Content */}
+              <div className="flex-1 space-y-5">
+                <div className="space-y-2">
+                  <h3 className="text-xl font-semibold text-gray-900">
+                    {policy
+                      ? "Ask me anything about this policy!"
+                      : "Ask me anything about your policies!"}
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    {policy
+                      ? "I can help you understand the policy content, find specific information, and answer your questions."
+                      : "I can help you understand your company policies, compare them, find specific information, and answer your questions."}
+                  </p>
                 </div>
 
-                {/* Right side - Content */}
-                <div className="flex-1 space-y-4">
-                  <div className="space-y-2">
-                    <h3 className="text-xl font-semibold text-gray-900">
-                      {policy
-                        ? "Ask me anything about this policy!"
-                        : "Ask me anything about your policies!"}
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      {policy
-                        ? "I can help you understand the policy content, find specific information, and answer your questions."
-                        : "I can help you understand your company policies, compare them, find specific information, and answer your questions."}
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-gray-500 uppercase">
-                      Suggested Questions
-                    </p>
-                    <div className="grid grid-cols-1 gap-2">
-                      {suggestedQuestions.map((question, index) => (
-                        <button
-                          key={index}
-                          onClick={() => handleSuggestedQuestion(question)}
-                          className="w-full text-left px-4 py-2.5 text-sm bg-gray-50 hover:bg-yellow-50 hover:border-yellow-200 border border-gray-200 rounded-lg transition-colors"
-                        >
-                          {question}
-                        </button>
-                      ))}
-                    </div>
+                <div className="space-y-2.5">
+                  <p className="text-xs font-medium text-gray-500 uppercase">
+                    Suggested Questions
+                  </p>
+                  <div className="grid grid-cols-1 gap-2.5">
+                    {suggestedQuestions.map((question, index) => (
+                      <button
+                        key={index}
+                        onClick={() => handleSuggestedQuestion(question)}
+                        className="w-full text-left px-4 py-3 text-sm bg-gray-50 hover:bg-yellow-50 hover:border-yellow-200 border border-gray-200 rounded-lg transition-colors"
+                      >
+                        {question}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -216,18 +214,20 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
           )}
         </div>
 
-        {/* Error Display */}
-        {error && (
-          <div className="px-6 pb-2">
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          </div>
-        )}
+      </CardContent>
 
-        {/* Input Area */}
-        <div className="border-t p-4">
+      {/* Error Display */}
+      {error && (
+        <div className="px-6 pb-2">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        </div>
+      )}
+
+      {/* Input Area */}
+      <div className="border-t p-4">
           <div className="flex gap-2">
             <div className="flex-1">
               <textarea
@@ -265,7 +265,6 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
             </Button>
           </div>
         </div>
-      </CardContent>
     </Card>
   );
 }
