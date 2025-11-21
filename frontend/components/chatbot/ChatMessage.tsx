@@ -33,11 +33,11 @@ const ChatMessage: React.FC<MessageProps> = ({ message, onPlayAudio }) => {
         {/* Avatar */}
         <div
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-            isUser ? "bg-blue-600" : "bg-gray-600"
+            isUser ? "bg-gradient-to-r from-yellow-400 to-yellow-500" : "bg-gray-600"
           }`}
         >
           {isUser ? (
-            <User className="h-4 w-4 text-white" />
+            <User className="h-4 w-4 text-gray-900" />
           ) : (
             <Bot className="h-4 w-4 text-white" />
           )}
@@ -48,7 +48,7 @@ const ChatMessage: React.FC<MessageProps> = ({ message, onPlayAudio }) => {
           <div
             className={`rounded-lg px-4 py-2 ${
               isUser
-                ? "bg-blue-600 text-white"
+                ? "bg-gradient-to-r from-yellow-400 to-yellow-500 text-gray-900"
                 : "bg-white border border-gray-200 text-gray-800"
             }`}
           >
