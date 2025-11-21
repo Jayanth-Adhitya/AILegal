@@ -2156,7 +2156,7 @@ async def clear_policy_embeddings(
 
         # Initialize ChromaDB client
         chroma_client = chromadb.PersistentClient(
-            path=str(settings.chroma_persist_directory),
+            path=str(settings.chroma_db_path),
             settings=ChromaSettings(anonymized_telemetry=False)
         )
 
