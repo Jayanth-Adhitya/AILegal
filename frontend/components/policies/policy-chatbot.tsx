@@ -129,12 +129,12 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
         </CardTitle>
       </CardHeader>
 
-      <CardContent className="flex-1 flex flex-col p-0">
+      <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center min-h-full text-center">
-              <div className="space-y-4 mb-8">
+            <div className="flex flex-col items-center justify-center min-h-full text-center max-w-full">
+              <div className="space-y-4 mb-8 px-4">
                 <img
                   src="/assets/cirilla_bot/cirilla-bot-analyze.png"
                   alt="Cirilla AI"
@@ -145,14 +145,14 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
                     ? "Ask me anything about this policy!"
                     : "Ask me anything about your policies!"}
                 </h3>
-                <p className="text-sm text-gray-600 max-w-md mx-auto px-4">
+                <p className="text-sm text-gray-600 max-w-md mx-auto">
                   {policy
                     ? "I can help you understand the policy content, find specific information, and answer your questions."
                     : "I can help you understand your company policies, compare them, find specific information, and answer your questions."}
                 </p>
               </div>
 
-              <div className="w-full max-w-xl mx-auto space-y-2">
+              <div className="w-full space-y-2 px-4">
                 <p className="text-xs font-medium text-gray-500 uppercase">
                   Suggested Questions
                 </p>
