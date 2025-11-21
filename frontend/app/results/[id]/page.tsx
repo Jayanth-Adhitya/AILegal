@@ -7,13 +7,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Download, FileText, AlertCircle, ArrowLeft } from "lucide-react";
+import { Download, FileText, AlertCircle, ArrowLeft, Globe, CheckCircle } from "lucide-react";
 import { StatisticsDashboard } from "@/components/results/statistics-dashboard";
 import { ClauseViewer } from "@/components/results/clause-viewer";
 import ChatbotFloatingButton from "@/components/chatbot/ChatbotFloatingButton";
-import { contractApi } from "@/lib/api";
+import { contractApi, API_BASE_URL } from "@/lib/api";
 import { JobStatus } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
+
+interface LocationData {
+  success: boolean;
+  country_code: string | null;
+  country_name: string | null;
+  region_code: string | null;
+  region_name: string | null;
+}
 
 export default function ResultsPage() {
   const params = useParams();
@@ -22,6 +30,7 @@ export default function ResultsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [location, setLocation] = useState<LocationData | null>(null);
 
   useEffect(() => {
     const loadResults = async () => {
@@ -37,7 +46,20 @@ export default function ResultsPage() {
       }
     };
 
+    const fetchLocation = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/location`, {
+          credentials: "include",
+        });
+        const data: LocationData = await response.json();
+        setLocation(data);
+      } catch (error) {
+        console.error("Failed to fetch location:", error);
+      }
+    };
+
     loadResults();
+    fetchLocation();
   }, [jobId]);
 
   const handleDownload = async (reportType: "reviewed" | "detailed" | "html") => {
@@ -175,6 +197,34 @@ export default function ResultsPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Regional KB Indicator for Dubai/UAE users */}
+        {location?.region_code === "dubai_uae" && (
+          <Alert className="mb-6 border-green-200 bg-green-50">
+            <CheckCircle className="h-4 w-4 text-green-600" />
+            <AlertTitle className="text-green-900">
+              Analysis Includes UAE Legal Framework
+            </AlertTitle>
+            <AlertDescription className="text-green-800">
+              This contract was analyzed using:
+              <ul className="mt-2 ml-4 space-y-1 list-disc">
+                <li>Your company policies and standards</li>
+                <li>
+                  <strong>UAE Federal Laws and Regulations</strong> from{" "}
+                  <a
+                    href="https://www.moet.gov.ae"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-green-600"
+                  >
+                    www.moet.gov.ae
+                  </a>
+                </li>
+                <li>Regional compliance requirements for Dubai and the UAE</li>
+              </ul>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Statistics Dashboard */}
         {result.summary && (

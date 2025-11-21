@@ -1,13 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { FileCheck, AlertCircle, ArrowRight } from "lucide-react";
+import { FileCheck, AlertCircle, ArrowRight, Globe, CheckCircle } from "lucide-react";
 import { ContractUpload } from "@/components/analysis/contract-upload";
 import { AnalysisProgress } from "@/components/analysis/analysis-progress";
-import { contractApi } from "@/lib/api";
+import { contractApi, API_BASE_URL } from "@/lib/api";
+
+interface LocationData {
+  success: boolean;
+  country_code: string | null;
+  country_name: string | null;
+  region_code: string | null;
+  region_name: string | null;
+}
 
 export default function AnalyzePage() {
   const [step, setStep] = useState<"upload" | "analyzing">("upload");
@@ -15,6 +23,27 @@ export default function AnalyzePage() {
   const [jobId, setJobId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [location, setLocation] = useState<LocationData | null>(null);
+  const [loadingLocation, setLoadingLocation] = useState(true);
+
+  // Fetch user location on mount
+  useEffect(() => {
+    fetchLocation();
+  }, []);
+
+  const fetchLocation = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/location`, {
+        credentials: "include",
+      });
+      const data: LocationData = await response.json();
+      setLocation(data);
+    } catch (error) {
+      console.error("Failed to fetch location:", error);
+    } finally {
+      setLoadingLocation(false);
+    }
+  };
 
   const handleUploadSuccess = (uploadJobId: string, fileName: string) => {
     setJobId(uploadJobId);
@@ -93,6 +122,40 @@ export default function AnalyzePage() {
             changes. The analysis typically takes 2-5 minutes depending on contract length.
           </AlertDescription>
         </Alert>
+
+        {/* Regional KB Indicator for Dubai/UAE users */}
+        {!loadingLocation && location?.region_code === "dubai_uae" && (
+          <Alert className="mb-6 border-blue-200 bg-blue-50">
+            <Globe className="h-4 w-4 text-blue-600" />
+            <AlertTitle className="text-blue-900">UAE Legal Framework Active</AlertTitle>
+            <AlertDescription className="text-blue-800">
+              <div className="space-y-2">
+                <div className="flex items-start gap-2">
+                  <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                  <span>
+                    Your analysis will include <strong>UAE Federal Laws and Regulations</strong> from the{" "}
+                    <a
+                      href="https://www.moet.gov.ae"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:text-blue-600"
+                    >
+                      Ministry of Economy
+                    </a>
+                  </span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                  <span>Regional compliance requirements specific to Dubai and the UAE</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                  <span>Your company policies and standards</span>
+                </div>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {error && (
           <Alert variant="destructive" className="mb-6">
