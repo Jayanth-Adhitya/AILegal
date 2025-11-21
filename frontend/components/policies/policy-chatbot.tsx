@@ -10,7 +10,7 @@ import { policyApi } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 
 interface PolicyChatbotProps {
-  policy: Policy;
+  policy?: Policy;  // Optional - if not provided, chat about all policies
 }
 
 interface Message {
@@ -38,12 +38,19 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
     inputRef.current?.focus();
   }, []);
 
-  const suggestedQuestions = [
-    "What are the key terms of this policy?",
-    "Who does this policy apply to?",
-    "What are the main obligations under this policy?",
-    "Are there any important dates or deadlines?",
-  ];
+  const suggestedQuestions = policy
+    ? [
+        "What are the key terms of this policy?",
+        "Who does this policy apply to?",
+        "What are the main obligations under this policy?",
+        "Are there any important dates or deadlines?",
+      ]
+    : [
+        "What policies do we have?",
+        "Summarize our liability policies",
+        "What are the key compliance requirements across our policies?",
+        "Compare our IP and confidentiality policies",
+      ];
 
   const handleSendMessage = async () => {
     if (!input.trim() || loading) return;
@@ -61,14 +68,23 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
     setError(null);
 
     try {
-      const data = await policyApi.sendChatMessage(
-        policy.id,
-        userMessage.content,
-        messages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        }))
-      );
+      // Use general chat if no specific policy, otherwise use policy-specific chat
+      const data = policy
+        ? await policyApi.sendChatMessage(
+            policy.id,
+            userMessage.content,
+            messages.map((m) => ({
+              role: m.role,
+              content: m.content,
+            }))
+          )
+        : await policyApi.sendGeneralChatMessage(
+            userMessage.content,
+            messages.map((m) => ({
+              role: m.role,
+              content: m.content,
+            }))
+          );
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -105,7 +121,7 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
       <CardHeader className="border-b">
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-blue-600" />
-          Policy Chat Assistant
+          {policy ? `${policy.title} - Chat Assistant` : "Policy Chat Assistant"}
         </CardTitle>
       </CardHeader>
 
@@ -117,11 +133,14 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
               <div className="space-y-2">
                 <Sparkles className="h-12 w-12 text-blue-600 mx-auto" />
                 <h3 className="text-lg font-semibold text-gray-900">
-                  Ask me anything about this policy!
+                  {policy
+                    ? "Ask me anything about this policy!"
+                    : "Ask me anything about your policies!"}
                 </h3>
                 <p className="text-sm text-gray-600">
-                  I can help you understand the policy content, find specific information, and
-                  answer your questions.
+                  {policy
+                    ? "I can help you understand the policy content, find specific information, and answer your questions."
+                    : "I can help you understand your company policies, compare them, find specific information, and answer your questions."}
                 </p>
               </div>
 

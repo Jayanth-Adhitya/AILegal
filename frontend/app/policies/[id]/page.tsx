@@ -12,7 +12,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Policy } from "@/lib/types";
 import { policyApi } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
-import { PolicyChatbot } from "@/components/policies/policy-chatbot";
 
 interface PolicyDetailPageProps {
   params: Promise<{ id: string }>;
@@ -24,7 +23,6 @@ export default function PolicyDetailPage({ params }: PolicyDetailPageProps) {
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"policy" | "chat">("policy");
 
   useEffect(() => {
     loadPolicy();
@@ -126,32 +124,7 @@ export default function PolicyDetailPage({ params }: PolicyDetailPageProps) {
           </div>
         </div>
 
-        {/* View Switcher */}
-        <div className="mb-4 flex items-center gap-2 border-b pb-4">
-          <button
-            onClick={() => setView("policy")}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              view === "policy"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            Policy View
-          </button>
-          <button
-            onClick={() => setView("chat")}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              view === "chat"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            Chat View
-          </button>
-        </div>
-
-        {/* Conditional Rendering based on view */}
-        {view === "policy" ? (
+        {/* Policy Content */}
         <Tabs defaultValue="sections" className="w-full">
           <TabsList>
             <TabsTrigger value="sections">
@@ -274,9 +247,6 @@ export default function PolicyDetailPage({ params }: PolicyDetailPageProps) {
             </TabsContent>
           )}
         </Tabs>
-        ) : (
-          <PolicyChatbot policy={policy} />
-        )}
       </div>
     </div>
   );

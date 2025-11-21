@@ -7,6 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { FileText, RefreshCw, AlertCircle } from "lucide-react";
 import { PolicyUpload } from "@/components/policies/policy-upload";
 import { PolicyList } from "@/components/policies/policy-list";
+import { PolicyChatbot } from "@/components/policies/policy-chatbot";
 import { Policy } from "@/lib/types";
 import { policyApi } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,6 +17,7 @@ export default function PoliciesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reingesting, setReingesting] = useState(false);
+  const [view, setView] = useState<"policies" | "chat">("policies");
 
   const loadPolicies = async () => {
     setLoading(true);
@@ -57,57 +59,102 @@ export default function PoliciesPage() {
           </p>
         </div>
 
-        {/* Info Alert */}
-        <Alert className="mb-6">
-          <FileText className="h-4 w-4" />
-          <AlertTitle>How Policy Management Works</AlertTitle>
-          <AlertDescription>
-            Upload your company policies in TXT, MD, or PDF format. The system will automatically
-            extract and index the content for contract analysis. After uploading new policies,
-            click &quot;Reingest Policies&quot; to update the vector database.
-          </AlertDescription>
-        </Alert>
-
-        {error && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {/* Upload Section */}
-        <div className="mb-8">
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">Upload Policies</h2>
-          <PolicyUpload onUploadComplete={loadPolicies} />
+        {/* View Switcher */}
+        <div className="mb-6 flex items-center gap-2">
+          <button
+            onClick={() => setView("policies")}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              view === "policies"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            Policies View
+          </button>
+          <button
+            onClick={() => setView("chat")}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              view === "chat"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            Chat View
+          </button>
         </div>
 
-        {/* Policies List */}
-        <div>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Uploaded Policies ({policies.length})
-            </h2>
-            <Button
-              variant="outline"
-              onClick={handleReingest}
-              disabled={reingesting || policies.length === 0}
-            >
-              <RefreshCw className={`mr-2 h-4 w-4 ${reingesting ? "animate-spin" : ""}`} />
-              Reingest Policies
-            </Button>
-          </div>
+        {/* Conditional Rendering based on view */}
+        {view === "policies" ? (
+          <>
+            {/* Info Alert */}
+            <Alert className="mb-6">
+              <FileText className="h-4 w-4" />
+              <AlertTitle>How Policy Management Works</AlertTitle>
+              <AlertDescription>
+                Upload your company policies in TXT, MD, or PDF format. The system will automatically
+                extract and index the content for contract analysis. After uploading new policies,
+                click &quot;Reingest Policies&quot; to update the vector database.
+              </AlertDescription>
+            </Alert>
 
-          {loading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
+            {error && (
+              <Alert variant="destructive" className="mb-6">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Upload Section */}
+            <div className="mb-8">
+              <h2 className="mb-4 text-lg font-semibold text-gray-900">Upload Policies</h2>
+              <PolicyUpload onUploadComplete={loadPolicies} />
             </div>
-          ) : (
-            <PolicyList policies={policies} onPolicyDeleted={loadPolicies} />
-          )}
-        </div>
+
+            {/* Policies List */}
+            <div>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Uploaded Policies ({policies.length})
+                </h2>
+                <Button
+                  variant="outline"
+                  onClick={handleReingest}
+                  disabled={reingesting || policies.length === 0}
+                >
+                  <RefreshCw className={`mr-2 h-4 w-4 ${reingesting ? "animate-spin" : ""}`} />
+                  Reingest Policies
+                </Button>
+              </div>
+
+              {loading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                </div>
+              ) : (
+                <PolicyList policies={policies} onPolicyDeleted={loadPolicies} />
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Chat View */}
+            {policies.length === 0 && !loading ? (
+              <Alert className="mb-6">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>No Policies Found</AlertTitle>
+                <AlertDescription>
+                  Please upload policies first before using the chat feature.
+                  Switch to &quot;Policies View&quot; to upload your company policies.
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <PolicyChatbot />
+            )}
+          </>
+        )}
       </div>
     </div>
   );

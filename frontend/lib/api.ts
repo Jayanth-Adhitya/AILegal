@@ -129,7 +129,7 @@ export const policyApi = {
     }
   },
 
-  // Send chat message to policy chatbot
+  // Send chat message to policy chatbot (specific policy)
   async sendChatMessage(
     policyId: string,
     message: string,
@@ -138,6 +138,25 @@ export const policyApi = {
     try {
       const response = await api.post<{ response: string; policy_id: string; timestamp: string }>(
         `/api/policies/${policyId}/chat`,
+        {
+          message,
+          conversation_history: conversationHistory || [],
+        }
+      );
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Send chat message to general policy chatbot (all policies)
+  async sendGeneralChatMessage(
+    message: string,
+    conversationHistory?: Array<{ role: string; content: string }>
+  ): Promise<{ response: string; policy_id: string; timestamp: string }> {
+    try {
+      const response = await api.post<{ response: string; policy_id: string; timestamp: string }>(
+        `/api/policies/chat`,
         {
           message,
           conversation_history: conversationHistory || [],

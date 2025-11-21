@@ -1224,6 +1224,120 @@ Provide specific references to sections when applicable."""
         raise HTTPException(status_code=500, detail="Failed to process chat message")
 
 
+@app.post("/api/policies/chat", response_model=PolicyChatResponse)
+async def policies_general_chat(
+    request: PolicyChatRequest,
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Chat with an AI assistant about all company policies.
+
+    Args:
+        request: Chat request with message and optional conversation history
+
+    Returns:
+        AI assistant response
+    """
+    try:
+        from .services.policy_service import PolicyService
+
+        # Validate message
+        if not request.message or not request.message.strip():
+            raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+        if len(request.message) > 5000:
+            raise HTTPException(status_code=400, detail="Message too long (max 5000 characters)")
+
+        # Get all policies for the user's company
+        policy_service = PolicyService(db)
+        policies = db.query(DBPolicy).filter(
+            DBPolicy.company_id == user.company_id,
+            DBPolicy.status == "active"
+        ).all()
+
+        if not policies or len(policies) == 0:
+            raise HTTPException(status_code=404, detail="No policies found. Please upload policies first.")
+
+        # Build context from all policies
+        context_parts = [
+            f"You have access to {len(policies)} company policies:",
+            ""
+        ]
+
+        for policy in policies:
+            context_parts.append(f"\n{'='*60}")
+            context_parts.append(f"POLICY: {policy.title}")
+            context_parts.append(f"Policy Number: {policy.policy_number or 'N/A'}")
+            context_parts.append(f"Version: {policy.version}")
+            context_parts.append(f"{'='*60}\n")
+
+            # Add policy content
+            if policy.sections and len(policy.sections) > 0:
+                for section in sorted(policy.sections, key=lambda s: s.section_order):
+                    section_header = f"{section.section_number}. {section.section_title}" if section.section_number and section.section_title else f"Section {section.section_order + 1}"
+                    context_parts.append(f"\n{section_header}")
+                    context_parts.append(section.section_content)
+            elif policy.full_text:
+                context_parts.append(policy.full_text)
+
+        policy_context = "\n".join(context_parts)
+
+        # Truncate if too long (keep under 100k chars)
+        if len(policy_context) > 100000:
+            policy_context = policy_context[:100000] + "\n... (content truncated)"
+            logger.warning(f"Policies context truncated for company {user.company_id}")
+
+        # Build system prompt
+        system_prompt = f"""You are an AI assistant helping users understand their company's policy documents.
+
+{policy_context}
+
+Answer user questions about these policies clearly and accurately. Be helpful and conversational.
+If the user asks about a specific policy, reference it by name.
+If information is not in the policies, say so - do not make up information.
+Provide specific references to policies and sections when applicable.
+When comparing policies or discussing relationships between them, be explicit about which policy you're referencing."""
+
+        # Initialize Gemini
+        llm = ChatGoogleGenerativeAI(
+            model=settings.gemini_model,
+            google_api_key=settings.google_api_key,
+            temperature=0.7,
+            max_output_tokens=2048
+        )
+
+        # Build messages for Gemini
+        messages = [("system", system_prompt)]
+
+        # Add conversation history if provided
+        if request.conversation_history:
+            for msg in request.conversation_history[-10:]:  # Only last 10 messages
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if role and content:
+                    messages.append((role, content))
+
+        # Add current user message
+        messages.append(("user", request.message))
+
+        # Call Gemini
+        logger.info(f"General policy chat by {user.email}: {request.message[:50]}...")
+        response = await llm.ainvoke(messages)
+
+        return PolicyChatResponse(
+            response=response.content,
+            policy_id="all",  # Indicate this is a general chat
+            timestamp=datetime.now().isoformat()
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"General policy chat error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to process chat message")
+
+
 @app.post("/api/contracts/upload", response_model=AnalysisResponse)
 async def upload_contract(
     file: UploadFile = File(...),
