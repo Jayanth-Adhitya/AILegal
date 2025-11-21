@@ -133,8 +133,8 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center space-y-6">
-              <div className="space-y-4">
+            <div className="flex flex-col items-center justify-center min-h-full py-8 text-center">
+              <div className="space-y-4 mb-6">
                 <img
                   src="/assets/cirilla_bot/cirilla-bot-analyze.png"
                   alt="Cirilla AI"
@@ -145,14 +145,14 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
                     ? "Ask me anything about this policy!"
                     : "Ask me anything about your policies!"}
                 </h3>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-gray-600 max-w-md mx-auto">
                   {policy
                     ? "I can help you understand the policy content, find specific information, and answer your questions."
                     : "I can help you understand your company policies, compare them, find specific information, and answer your questions."}
                 </p>
               </div>
 
-              <div className="w-full max-w-md space-y-2">
+              <div className="w-full max-w-lg px-4 space-y-2">
                 <p className="text-xs font-medium text-gray-500 uppercase">
                   Suggested Questions
                 </p>
@@ -160,7 +160,7 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
                   <button
                     key={index}
                     onClick={() => handleSuggestedQuestion(question)}
-                    className="w-full text-left px-4 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+                    className="w-full text-left px-4 py-3 text-sm bg-gray-50 hover:bg-yellow-50 hover:border-yellow-200 border border-gray-200 rounded-lg transition-colors"
                   >
                     {question}
                   </button>
