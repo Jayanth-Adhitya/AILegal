@@ -119,12 +119,7 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
   return (
     <Card className="flex flex-col">
       <CardHeader className="border-b">
-        <CardTitle className="flex items-center gap-2">
-          <img
-            src="/assets/cirilla_bot/cirilla-mascot.png"
-            alt="Cirilla AI"
-            className="h-6 w-6 rounded-full object-cover"
-          />
+        <CardTitle>
           {policy ? `${policy.title} - Cirilla AI` : "Cirilla AI - Policy Assistant"}
         </CardTitle>
       </CardHeader>
