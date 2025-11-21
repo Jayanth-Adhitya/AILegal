@@ -120,7 +120,7 @@ export function PolicyUpload({ onUploadComplete }: PolicyUploadProps) {
                 className="flex items-center justify-between rounded-lg border bg-gray-50 p-3"
               >
                 <div className="flex items-center gap-3">
-                  <FileText className="h-5 w-5 text-blue-600" />
+                  <FileText className="h-5 w-5 text-yellow-600" />
                   <div>
                     <p className="text-sm font-medium text-gray-900">
                       {file.name}

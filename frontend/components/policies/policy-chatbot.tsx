@@ -120,8 +120,12 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
     <Card className="h-[calc(100vh-300px)] flex flex-col">
       <CardHeader className="border-b">
         <CardTitle className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-blue-600" />
-          {policy ? `${policy.title} - Chat Assistant` : "Policy Chat Assistant"}
+          <img
+            src="/assets/cirilla_bot/cirilla-mascot.png"
+            alt="Cirilla AI"
+            className="h-6 w-6 rounded-full object-cover"
+          />
+          {policy ? `${policy.title} - Cirilla AI` : "Cirilla AI - Policy Assistant"}
         </CardTitle>
       </CardHeader>
 
@@ -131,7 +135,11 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center space-y-6">
               <div className="space-y-2">
-                <Sparkles className="h-12 w-12 text-blue-600 mx-auto" />
+                <img
+                  src="/assets/cirilla_bot/cirilla-mascot.png"
+                  alt="Cirilla AI"
+                  className="h-24 w-24 rounded-full object-cover mx-auto"
+                />
                 <h3 className="text-lg font-semibold text-gray-900">
                   {policy
                     ? "Ask me anything about this policy!"
@@ -171,7 +179,7 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
                   <div
                     className={`max-w-[80%] rounded-lg px-4 py-2 ${
                       message.role === "user"
-                        ? "bg-blue-600 text-white"
+                        ? "bg-gradient-to-r from-yellow-400 to-yellow-500 text-gray-900"
                         : "bg-gray-100 text-gray-900"
                     }`}
                   >
@@ -218,7 +226,7 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
                 onKeyDown={handleKeyDown}
                 placeholder="Type your question... (Press Enter to send, Shift+Enter for new line)"
                 disabled={loading}
-                className="w-full min-h-[60px] max-h-[200px] px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:cursor-not-allowed resize-none"
+                className="w-full min-h-[60px] max-h-[200px] px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 disabled:bg-gray-50 disabled:cursor-not-allowed resize-none"
                 rows={2}
               />
               <div className="flex justify-between items-center mt-1 px-1">
