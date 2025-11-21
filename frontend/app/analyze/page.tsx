@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { FileCheck, AlertCircle, ArrowRight, Globe, CheckCircle } from "lucide-react";
 import { ContractUpload } from "@/components/analysis/contract-upload";
 import { AnalysisProgress } from "@/components/analysis/analysis-progress";
+import { ContractChatbot } from "@/components/analysis/contract-chatbot";
 import { contractApi, API_BASE_URL } from "@/lib/api";
 
 interface LocationData {
@@ -18,6 +19,7 @@ interface LocationData {
 }
 
 export default function AnalyzePage() {
+  const [view, setView] = useState<"analyze" | "chat">("analyze");
   const [step, setStep] = useState<"upload" | "analyzing">("upload");
   const [contractName, setContractName] = useState("");
   const [jobId, setJobId] = useState("");
@@ -83,6 +85,33 @@ export default function AnalyzePage() {
           </p>
         </div>
 
+        {/* View Switcher */}
+        <div className="mb-6 flex items-center gap-2">
+          <button
+            onClick={() => setView("analyze")}
+            className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+              view === "analyze"
+                ? "bg-gradient-to-r from-yellow-400 to-yellow-500 text-gray-900 shadow-dual-sm"
+                : "bg-gray-100 text-gray-700 hover:bg-yellow-100/50 hover:text-gray-900"
+            }`}
+          >
+            Analyze Contracts
+          </button>
+          <button
+            onClick={() => setView("chat")}
+            className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+              view === "chat"
+                ? "bg-gradient-to-r from-yellow-400 to-yellow-500 text-gray-900 shadow-dual-sm"
+                : "bg-gray-100 text-gray-700 hover:bg-yellow-100/50 hover:text-gray-900"
+            }`}
+          >
+            Cirilla AI
+          </button>
+        </div>
+
+        {/* Conditional Rendering based on view */}
+        {view === "analyze" ? (
+          <>
         {/* Steps Indicator */}
         <div className="mb-8 flex items-center justify-center gap-4">
           <div className="flex items-center gap-2">
@@ -201,6 +230,10 @@ export default function AnalyzePage() {
           </div>
         ) : (
           <AnalysisProgress jobId={jobId} contractName={contractName} />
+        )}
+          </>
+        ) : (
+          <ContractChatbot />
         )}
       </div>
     </div>

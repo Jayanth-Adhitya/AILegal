@@ -2605,6 +2605,159 @@ async def debug_job(job_id: str):
     return debug_info
 
 
+class ContractChatRequest(BaseModel):
+    message: str
+    conversation_history: Optional[List[Dict[str, str]]] = []
+
+
+class ContractChatResponse(BaseModel):
+    response: str
+    timestamp: str
+
+
+@app.post("/api/contracts/chat", response_model=ContractChatResponse)
+async def contracts_general_chat(
+    request: ContractChatRequest,
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Chat with an AI assistant about contract analysis and completed analyses.
+
+    Args:
+        request: Chat request with message and optional conversation history
+
+    Returns:
+        AI assistant response
+    """
+    try:
+        # Validate message
+        if not request.message or not request.message.strip():
+            raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+        if len(request.message) > 5000:
+            raise HTTPException(status_code=400, detail="Message too long (max 5000 characters)")
+
+        # Get all completed analyses for the user
+        completed_analyses = db.query(DBAnalysisJob).filter(
+            DBAnalysisJob.user_id == user.id,
+            DBAnalysisJob.status == "completed"
+        ).order_by(DBAnalysisJob.created_at.desc()).limit(10).all()
+
+        # Build context from completed analyses
+        if not completed_analyses or len(completed_analyses) == 0:
+            context = "IMPORTANT: The user currently has NO completed contract analyses."
+            system_prompt = """You are Cirilla AI, a friendly and helpful contract analysis assistant.
+
+IMPORTANT: The user currently has NO completed contract analyses yet.
+
+Inform the user in a friendly and helpful way that:
+1. They haven't analyzed any contracts yet
+2. They can analyze a new contract by switching to "Analyze Contracts" view
+3. Once contracts are analyzed, you'll be able to help them understand the results and compliance issues
+4. You can answer general questions about contract analysis, compliance, and best practices
+
+Be conversational and helpful. Offer guidance on contract analysis best practices if asked."""
+        else:
+            context_parts = [
+                f"The user has {len(completed_analyses)} completed contract analyses:",
+                ""
+            ]
+
+            for analysis in completed_analyses:
+                context_parts.append(f"\n{'='*60}")
+                context_parts.append(f"CONTRACT: {analysis.filename}")
+                context_parts.append(f"Analysis ID: {analysis.job_id}")
+                context_parts.append(f"Analyzed on: {analysis.created_at.strftime('%Y-%m-%d %H:%M')}")
+                context_parts.append(f"{'='*60}\n")
+
+                # Add summary if available
+                if analysis.result_json:
+                    try:
+                        result = json.loads(analysis.result_json)
+                        summary = result.get("summary", {})
+
+                        if summary:
+                            context_parts.append(f"\nSUMMARY:")
+                            context_parts.append(f"Overall Status: {summary.get('overall_compliance_status', 'N/A')}")
+                            context_parts.append(f"Risk Level: {summary.get('risk_level', 'N/A')}")
+
+                            if summary.get('total_clauses'):
+                                context_parts.append(f"Total Clauses: {summary['total_clauses']}")
+                            if summary.get('compliant_clauses') is not None:
+                                context_parts.append(f"Compliant Clauses: {summary['compliant_clauses']}")
+                            if summary.get('non_compliant_clauses') is not None:
+                                context_parts.append(f"Non-Compliant Clauses: {summary['non_compliant_clauses']}")
+
+                            if summary.get('key_findings'):
+                                context_parts.append(f"\nKey Findings:")
+                                for finding in summary['key_findings'][:3]:  # Limit to 3
+                                    context_parts.append(f"- {finding}")
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse result_json for analysis {analysis.job_id}")
+
+            context = "\n".join(context_parts)
+
+            # Truncate if too long (keep under 50k chars)
+            if len(context) > 50000:
+                context = context[:50000] + "\n... (content truncated)"
+                logger.warning(f"Contract context truncated for user {user.email}")
+
+            # Build system prompt
+            system_prompt = f"""You are Cirilla AI, a friendly and helpful contract analysis assistant.
+
+{context}
+
+Answer user questions about their contract analyses clearly and accurately. Be helpful and conversational.
+If the user asks about a specific contract, reference it by name.
+If information is not in the analyses, say so - do not make up information.
+Provide specific references to contracts and findings when applicable.
+Help users understand compliance issues, risks, and recommendations from their analyses.
+
+You can also answer general questions about:
+- How to analyze contracts
+- Contract compliance best practices
+- Understanding contract terms and clauses
+- Risk assessment in contracts"""
+
+        # Initialize Gemini
+        llm = ChatGoogleGenerativeAI(
+            model=settings.gemini_model,
+            google_api_key=settings.google_api_key,
+            temperature=0.7,
+            max_output_tokens=2048
+        )
+
+        # Build messages for Gemini
+        messages = [("system", system_prompt)]
+
+        # Add conversation history if provided
+        if request.conversation_history:
+            for msg in request.conversation_history[-10:]:  # Only last 10 messages
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if role and content:
+                    messages.append((role, content))
+
+        # Add current user message
+        messages.append(("user", request.message))
+
+        # Call Gemini
+        logger.info(f"General contract chat by {user.email}: {request.message[:50]}...")
+        response = await llm.ainvoke(messages)
+
+        return ContractChatResponse(
+            response=response.content,
+            timestamp=datetime.now().isoformat()
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"General contract chat error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
+
+
 @app.get("/api/chat/{job_id}/context")
 async def get_chat_context(job_id: str):
     """

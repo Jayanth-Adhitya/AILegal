@@ -259,6 +259,22 @@ export const contractApi = {
       handleApiError(error);
     }
   },
+
+  // Send chat message to general contract chatbot (all analyses)
+  async sendGeneralChatMessage(
+    message: string,
+    conversationHistory?: Array<{ role: string; content: string }>
+  ): Promise<{ response: string; timestamp: string }> {
+    try {
+      const response = await api.post(`/api/contracts/chat`, {
+        message,
+        conversation_history: conversationHistory || [],
+      });
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
 };
 
 // Chat API
