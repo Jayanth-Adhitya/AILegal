@@ -35,7 +35,12 @@ export function AnalysisProgress({ jobId, contractName }: AnalysisProgressProps)
 
   // Smooth progress animation and activity messages while processing
   useEffect(() => {
-    if (status?.status === "processing" && animatedProgress < 95) {
+    // Start animation if status is null (just loaded) or processing, and not completed/failed
+    const shouldAnimate =
+      (!status || status.status === "processing" || status.status === "pending") &&
+      animatedProgress < 95;
+
+    if (shouldAnimate) {
       const progressInterval = setInterval(() => {
         setAnimatedProgress((prev) => {
           // Slow down as we approach 95%
@@ -93,6 +98,7 @@ export function AnalysisProgress({ jobId, contractName }: AnalysisProgressProps)
       case "failed":
         return <AlertCircle className="h-12 w-12 text-red-600 animate-in zoom-in-50 duration-500" />;
       case "processing":
+      case "pending":
         return (
           <div className="relative">
             <div className="absolute inset-0 h-12 w-12 rounded-full bg-blue-400 opacity-25 animate-ping" />
@@ -100,7 +106,13 @@ export function AnalysisProgress({ jobId, contractName }: AnalysisProgressProps)
           </div>
         );
       default:
-        return <FileCheck className="h-12 w-12 text-gray-400 animate-pulse" />;
+        // Show spinner while loading initial status
+        return (
+          <div className="relative">
+            <div className="absolute inset-0 h-12 w-12 rounded-full bg-blue-400 opacity-25 animate-ping" />
+            <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+          </div>
+        );
     }
   };
 
@@ -129,12 +141,12 @@ export function AnalysisProgress({ jobId, contractName }: AnalysisProgressProps)
           <p className="mt-4 text-lg font-medium text-gray-900">
             {getStatusMessage()}
           </p>
-          {status?.status === "processing" && (
+          {(!status || status.status === "processing" || status.status === "pending") && (
             <p className="mt-2 text-sm text-blue-600 animate-pulse">
               {activityMessage}
             </p>
           )}
-          {status?.message && status?.status !== "processing" && (
+          {status?.message && status.status !== "processing" && status.status !== "pending" && (
             <p className="mt-2 text-sm text-gray-600">{status.message}</p>
           )}
         </div>
