@@ -32,14 +32,18 @@ const ChatMessage: React.FC<MessageProps> = ({ message, onPlayAudio }) => {
       >
         {/* Avatar */}
         <div
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-            isUser ? "bg-gradient-to-r from-yellow-400 to-yellow-500" : "bg-gray-600"
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full overflow-hidden ${
+            isUser ? "bg-gradient-to-r from-yellow-400 to-yellow-500" : "bg-white"
           }`}
         >
           {isUser ? (
             <User className="h-4 w-4 text-gray-900" />
           ) : (
-            <Bot className="h-4 w-4 text-white" />
+            <img
+              src="/assets/cirilla_bot/cirilla-mascot.png"
+              alt="Cirilla AI"
+              className="h-full w-full object-cover"
+            />
           )}
         </div>
 

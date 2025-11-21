@@ -74,7 +74,7 @@ export default function AnalyzePage() {
 
   return (
     <div className="h-full p-8">
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-7xl">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Contract Management</h1>

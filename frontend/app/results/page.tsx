@@ -9,7 +9,7 @@ import { AnalysisHistory } from "@/components/analysis/analysis-history";
 export default function ResultsListPage() {
   return (
     <div className="h-full p-8">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-7xl">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
             <History className="h-8 w-8" />

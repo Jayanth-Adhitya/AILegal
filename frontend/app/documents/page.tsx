@@ -141,7 +141,8 @@ export default function DocumentsPage() {
   };
 
   return (
-    <div className="container mx-auto py-8 px-4">
+    <div className="h-full p-8">
+      <div className="mx-auto max-w-7xl">
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Documents</h1>
@@ -290,6 +291,7 @@ export default function DocumentsPage() {
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }
