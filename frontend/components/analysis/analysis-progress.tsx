@@ -19,6 +19,43 @@ export function AnalysisProgress({ jobId, contractName }: AnalysisProgressProps)
   const router = useRouter();
   const [status, setStatus] = useState<JobStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [animatedProgress, setAnimatedProgress] = useState(0);
+  const [activityMessage, setActivityMessage] = useState("Initializing analysis...");
+
+  const activityMessages = [
+    "Parsing contract structure...",
+    "Extracting clauses...",
+    "Analyzing terms and conditions...",
+    "Checking policy compliance...",
+    "Reviewing liability clauses...",
+    "Assessing risk factors...",
+    "Generating recommendations...",
+    "Finalizing analysis...",
+  ];
+
+  // Smooth progress animation and activity messages while processing
+  useEffect(() => {
+    if (status?.status === "processing" && animatedProgress < 95) {
+      const progressInterval = setInterval(() => {
+        setAnimatedProgress((prev) => {
+          // Slow down as we approach 95%
+          const increment = prev < 50 ? 2 : prev < 80 ? 1 : 0.5;
+          const newProgress = Math.min(prev + increment, 95);
+
+          // Update activity message based on progress
+          const messageIndex = Math.floor((newProgress / 95) * (activityMessages.length - 1));
+          setActivityMessage(activityMessages[messageIndex]);
+
+          return newProgress;
+        });
+      }, 500);
+
+      return () => clearInterval(progressInterval);
+    } else if (status?.status === "completed") {
+      setAnimatedProgress(100);
+      setActivityMessage("Analysis complete!");
+    }
+  }, [status?.status, animatedProgress, activityMessages]);
 
   useEffect(() => {
     const pollInterval = setInterval(async () => {
@@ -48,13 +85,22 @@ export function AnalysisProgress({ jobId, contractName }: AnalysisProgressProps)
   const getStatusIcon = () => {
     switch (status?.status) {
       case "completed":
-        return <CheckCircle2 className="h-12 w-12 text-green-600" />;
+        return (
+          <div className="relative">
+            <CheckCircle2 className="h-12 w-12 text-green-600 animate-in zoom-in-50 duration-500" />
+          </div>
+        );
       case "failed":
-        return <AlertCircle className="h-12 w-12 text-red-600" />;
+        return <AlertCircle className="h-12 w-12 text-red-600 animate-in zoom-in-50 duration-500" />;
       case "processing":
-        return <Loader2 className="h-12 w-12 animate-spin text-primary" />;
+        return (
+          <div className="relative">
+            <div className="absolute inset-0 h-12 w-12 rounded-full bg-blue-400 opacity-25 animate-ping" />
+            <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+          </div>
+        );
       default:
-        return <FileCheck className="h-12 w-12 text-gray-400" />;
+        return <FileCheck className="h-12 w-12 text-gray-400 animate-pulse" />;
     }
   };
 
@@ -83,7 +129,12 @@ export function AnalysisProgress({ jobId, contractName }: AnalysisProgressProps)
           <p className="mt-4 text-lg font-medium text-gray-900">
             {getStatusMessage()}
           </p>
-          {status?.message && (
+          {status?.status === "processing" && (
+            <p className="mt-2 text-sm text-blue-600 animate-pulse">
+              {activityMessage}
+            </p>
+          )}
+          {status?.message && status?.status !== "processing" && (
             <p className="mt-2 text-sm text-gray-600">{status.message}</p>
           )}
         </div>
@@ -92,10 +143,10 @@ export function AnalysisProgress({ jobId, contractName }: AnalysisProgressProps)
           <div className="flex justify-between text-sm">
             <span className="text-gray-600">Progress</span>
             <span className="font-medium text-gray-900">
-              {status?.progress || 0}%
+              {Math.round(animatedProgress)}%
             </span>
           </div>
-          <Progress value={status?.progress || 0} className="h-2" />
+          <Progress value={animatedProgress} className="h-2 transition-all duration-500" />
         </div>
 
         {status?.status === "completed" && (
