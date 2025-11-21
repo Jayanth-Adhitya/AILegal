@@ -208,6 +208,10 @@ export default function Dashboard() {
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600" />
+                    <span>moet.gov.ae Regulatory Compliance</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600" />
                     <span>Track changes and redline suggestions</span>
                   </li>
                   <li className="flex items-start gap-2">

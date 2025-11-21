@@ -18,7 +18,7 @@ from ..document_processing import (
     DocxGenerator,
     AnalysisReportGenerator
 )
-from .policy_checker import PolicyChecker
+from .policy_checker import PolicyChecker, SAFETY_SETTINGS
 from .batch_contract_analyzer import BatchContractAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,8 @@ class ContractAnalyzer:
             model=settings.gemini_model,
             google_api_key=settings.google_api_key,
             temperature=settings.temperature,
-            max_output_tokens=settings.max_output_tokens
+            max_output_tokens=settings.max_output_tokens,
+            safety_settings=SAFETY_SETTINGS  # Prevent over-blocking of legal content
         )
 
         self.clause_extractor = ClauseExtractor()
@@ -90,18 +91,32 @@ class ContractAnalyzer:
             if self.batch_mode and len(clauses) > 0:
                 logger.info("🚀 Using BATCH MODE for analysis")
 
-                # Estimate output tokens needed (rough estimate: 300 tokens per clause)
-                estimated_output_tokens = len(clauses) * 300
-                max_safe_tokens = int(settings.max_output_tokens * 0.8)  # Use 80% of limit for safety
+                # Dynamic token estimation based on clause complexity
+                # Conservative estimate: 400-500 tokens per clause for complete analysis
+                avg_tokens_per_clause = 450
+                estimated_output_tokens = len(clauses) * avg_tokens_per_clause
+                max_safe_tokens = int(settings.max_output_tokens * 0.85)  # Use 85% of limit for safety
 
-                logger.info(f"Estimated output tokens: ~{estimated_output_tokens:,} (max safe: {max_safe_tokens:,})")
+                logger.info(f"Contract analysis estimation:")
+                logger.info(f"  - Clauses to analyze: {len(clauses)}")
+                logger.info(f"  - Estimated output tokens: ~{estimated_output_tokens:,}")
+                logger.info(f"  - Max safe tokens: {max_safe_tokens:,}")
+                logger.info(f"  - Configured limit: {settings.max_output_tokens:,}")
 
                 # Use chunked analysis if needed
                 if estimated_output_tokens > max_safe_tokens:
-                    chunk_size = max(10, max_safe_tokens // 300)  # Calculate optimal chunk size
+                    # Calculate optimal chunk size to stay within token limits
+                    chunk_size = max(5, int(max_safe_tokens / avg_tokens_per_clause))
+                    num_chunks = (len(clauses) + chunk_size - 1) // chunk_size
+
                     logger.warning(
-                        f"Contract too large for single batch ({len(clauses)} clauses). "
-                        f"Using chunked analysis with {chunk_size} clauses per chunk"
+                        f"⚠️ Contract exceeds token limit for single batch analysis!"
+                    )
+                    logger.warning(
+                        f"  - Will split into {num_chunks} chunks of ~{chunk_size} clauses each"
+                    )
+                    logger.warning(
+                        f"  - Consider increasing MAX_OUTPUT_TOKENS to {estimated_output_tokens * 1.2:.0f} for single-pass analysis"
                     )
 
                     batch_result = self.batch_analyzer.analyze_contract_chunked(
@@ -110,7 +125,8 @@ class ContractAnalyzer:
                         chunk_size=chunk_size
                     )
                 else:
-                    # Single batch analysis
+                    # Single batch analysis - fits within token limits
+                    logger.info(f"✅ Contract fits within token limits - using single batch")
                     batch_result = self.batch_analyzer.analyze_contract_batch(
                         contract_text=doc_data["full_text"],
                         clauses=clauses

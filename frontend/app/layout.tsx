@@ -27,6 +27,10 @@ export default function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <link rel="icon" href="/assets/cirilla-logo.svg" type="image/svg+xml" />
+        <title>Cirilla - AI-Powered Contract Assistant</title>
+      </head>
       <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans`}>
         <TooltipProvider>
           <AuthProvider>

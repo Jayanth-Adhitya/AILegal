@@ -137,69 +137,27 @@ export function AnalysisHistory() {
     }
   };
 
-  if (loading && analyses.length === 0) {
-    return (
-      <div className="space-y-4">
-        {[1, 2, 3].map((i) => (
-          <Card key={i}>
-            <CardHeader>
-              <Skeleton className="h-6 w-3/4" />
-              <Skeleton className="h-4 w-1/2" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-20 w-full" />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <Card>
-        <CardContent className="pt-6">
-          <div className="text-center text-red-600">
-            <XCircle className="h-12 w-12 mx-auto mb-2" />
-            <p>{error}</p>
-            <Button onClick={fetchHistory} className="mt-4">
-              Retry
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (analyses.length === 0) {
-    return (
-      <Card>
-        <CardContent className="pt-6">
-          <div className="text-center text-gray-500">
-            <FileText className="h-12 w-12 mx-auto mb-2" />
-            <p>No analysis history found</p>
-            <p className="text-sm mt-2">Upload a contract to get started</p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <div className="space-y-4">
-      {/* Filter Buttons */}
+      {/* Filter Buttons - Always visible */}
       <div className="flex gap-2">
         <Button
           variant={sourceFilter === null ? "default" : "outline"}
           size="sm"
-          onClick={() => setSourceFilter(null)}
+          onClick={() => {
+            setSourceFilter(null);
+            setPage(0);
+          }}
         >
           All Sources
         </Button>
         <Button
           variant={sourceFilter === "web_upload" ? "default" : "outline"}
           size="sm"
-          onClick={() => setSourceFilter("web_upload")}
+          onClick={() => {
+            setSourceFilter("web_upload");
+            setPage(0);
+          }}
         >
           <Monitor className="h-4 w-4 mr-1" />
           Web Upload
@@ -207,119 +165,169 @@ export function AnalysisHistory() {
         <Button
           variant={sourceFilter === "word_addin" ? "default" : "outline"}
           size="sm"
-          onClick={() => setSourceFilter("word_addin")}
+          onClick={() => {
+            setSourceFilter("word_addin");
+            setPage(0);
+          }}
         >
           <FileCode className="h-4 w-4 mr-1" />
           Word Add-in
         </Button>
       </div>
 
-      {/* History List */}
-      {analyses.map((analysis) => (
-        <Card
-          key={analysis.job_id}
-          className="hover:shadow-lg transition-shadow"
-        >
-          <CardHeader>
-            <div className="flex justify-between items-start">
-              <div
-                className="flex-1 cursor-pointer"
-                onClick={() => router.push(`/results/${analysis.job_id}`)}
-              >
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <FileText className="h-5 w-5" />
-                  {analysis.filename}
-                </CardTitle>
-                <CardDescription className="flex items-center gap-2 mt-2">
-                  <Clock className="h-3 w-3" />
-                  {format(new Date(analysis.created_at), "PPpp")}
-                </CardDescription>
-              </div>
-              <div className="flex gap-2">
-                {getSourceBadge(analysis.source)}
-                {getStatusBadge(analysis.status)}
-              </div>
-            </div>
-          </CardHeader>
-
-          {analysis.summary && (
-            <CardContent>
-              <div className="grid grid-cols-3 gap-4 text-sm">
-                <div>
-                  <p className="text-gray-500">Total Clauses</p>
-                  <p className="font-semibold text-lg">{analysis.summary.total_clauses || 0}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Compliance Rate</p>
-                  <p className="font-semibold text-lg">
-                    {typeof analysis.summary.compliance_rate === 'number'
-                      ? analysis.summary.compliance_rate.toFixed(1)
-                      : '0.0'}%
-                  </p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Non-Compliant</p>
-                  <p className="font-semibold text-lg text-red-600">
-                    {analysis.summary.non_compliant_clauses || 0}
-                  </p>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-2 mt-4 pt-4 border-t">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => router.push(`/results/${analysis.job_id}`)}
-                  className="flex-1"
-                >
-                  <FileText className="h-4 w-4 mr-2" />
-                  View Results
-                </Button>
-                {analysis.status === "completed" && (
-                  <Button
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      router.push(`/documents/${analysis.job_id}`);
-                    }}
-                    className="flex-1"
-                  >
-                    <Edit className="h-4 w-4 mr-2" />
-                    Open in Editor
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          )}
-        </Card>
-      ))}
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex justify-between items-center pt-4">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage(Math.max(0, page - 1))}
-            disabled={page === 0}
-          >
-            <ChevronLeft className="h-4 w-4 mr-1" />
-            Previous
-          </Button>
-          <span className="text-sm text-gray-600">
-            Page {page + 1} of {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
-            disabled={page >= totalPages - 1}
-          >
-            Next
-            <ChevronRight className="h-4 w-4 ml-1" />
-          </Button>
+      {/* Loading State */}
+      {loading && analyses.length === 0 ? (
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardHeader>
+                <Skeleton className="h-6 w-3/4" />
+                <Skeleton className="h-4 w-1/2" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-20 w-full" />
+              </CardContent>
+            </Card>
+          ))}
         </div>
+      ) : error ? (
+        /* Error State */
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center text-red-600">
+              <XCircle className="h-12 w-12 mx-auto mb-2" />
+              <p>{error}</p>
+              <Button onClick={fetchHistory} className="mt-4">
+                Retry
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : analyses.length === 0 ? (
+        /* Empty State */
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center text-gray-500">
+              <FileText className="h-12 w-12 mx-auto mb-2" />
+              <p>No analysis history found</p>
+              <p className="text-sm mt-2">
+                {sourceFilter
+                  ? `No analyses from ${sourceFilter === "web_upload" ? "Web Upload" : "Word Add-in"} found`
+                  : "Upload a contract to get started"}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        /* History List */
+        <>
+          {analyses.map((analysis) => (
+            <Card
+              key={analysis.job_id}
+              className="hover:shadow-lg transition-shadow"
+            >
+              <CardHeader>
+                <div className="flex justify-between items-start">
+                  <div
+                    className="flex-1 cursor-pointer"
+                    onClick={() => router.push(`/results/${analysis.job_id}`)}
+                  >
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <FileText className="h-5 w-5" />
+                      {analysis.filename}
+                    </CardTitle>
+                    <CardDescription className="flex items-center gap-2 mt-2">
+                      <Clock className="h-3 w-3" />
+                      {format(new Date(analysis.created_at), "PPpp")}
+                    </CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    {getSourceBadge(analysis.source)}
+                    {getStatusBadge(analysis.status)}
+                  </div>
+                </div>
+              </CardHeader>
+
+              {analysis.summary && (
+                <CardContent>
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <p className="text-gray-500">Total Clauses</p>
+                      <p className="font-semibold text-lg">{analysis.summary.total_clauses || 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Compliance Rate</p>
+                      <p className="font-semibold text-lg">
+                        {typeof analysis.summary.compliance_rate === 'number'
+                          ? analysis.summary.compliance_rate.toFixed(1)
+                          : '0.0'}%
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Non-Compliant</p>
+                      <p className="font-semibold text-lg text-red-600">
+                        {analysis.summary.non_compliant_clauses || 0}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-2 mt-4 pt-4 border-t">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => router.push(`/results/${analysis.job_id}`)}
+                      className="flex-1"
+                    >
+                      <FileText className="h-4 w-4 mr-2" />
+                      View Results
+                    </Button>
+                    {analysis.status === "completed" && (
+                      <Button
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/documents/${analysis.job_id}`);
+                        }}
+                        className="flex-1"
+                      >
+                        <Edit className="h-4 w-4 mr-2" />
+                        Open in Editor
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              )}
+            </Card>
+          ))}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex justify-between items-center pt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(Math.max(0, page - 1))}
+                disabled={page === 0}
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Previous
+              </Button>
+              <span className="text-sm text-gray-600">
+                Page {page + 1} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
+                disabled={page >= totalPages - 1}
+              >
+                Next
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -10,6 +10,26 @@ from ..vector_store.retriever import PolicyRetriever
 
 logger = logging.getLogger(__name__)
 
+# Safety settings to prevent over-blocking of legal content
+SAFETY_SETTINGS = [
+    {
+        "category": "HARM_CATEGORY_HARASSMENT",
+        "threshold": "BLOCK_ONLY_HIGH"
+    },
+    {
+        "category": "HARM_CATEGORY_HATE_SPEECH",
+        "threshold": "BLOCK_ONLY_HIGH"
+    },
+    {
+        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+        "threshold": "BLOCK_ONLY_HIGH"
+    },
+    {
+        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+        "threshold": "BLOCK_ONLY_HIGH"
+    }
+]
+
 
 class SmartPolicyRetriever:
     """Intelligently retrieve all relevant policies for a contract in one go."""
@@ -20,7 +40,8 @@ class SmartPolicyRetriever:
         self.llm = ChatGoogleGenerativeAI(
             model=settings.gemini_model,
             google_api_key=settings.google_api_key,
-            temperature=0.1
+            temperature=0.1,
+            safety_settings=SAFETY_SETTINGS
         )
         logger.info("Initialized SmartPolicyRetriever")
 

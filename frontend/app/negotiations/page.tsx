@@ -129,16 +129,20 @@ export default function NegotiationsPage() {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <MessageSquare className="h-12 w-12 text-gray-400 mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              No negotiations yet
+              {statusFilter === "pending" ? "No pending negotiations" :
+               statusFilter === "active" ? "No active negotiations" :
+               statusFilter === "completed" ? "No completed negotiations" :
+               "No negotiations yet"}
             </h3>
-            <p className="text-gray-500 text-center mb-4">
-              Start a new negotiation with another company to begin discussing contract
-              terms.
+            <p className="text-gray-500 text-center">
+              {statusFilter === "pending"
+                ? "You have no pending negotiation requests waiting for response."
+                : statusFilter === "active"
+                ? "You have no ongoing negotiations at the moment."
+                : statusFilter === "completed"
+                ? "You haven't completed any negotiations yet."
+                : "Start a new negotiation with another company to begin discussing contract terms."}
             </p>
-            <Button onClick={() => setShowCreateModal(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Create First Negotiation
-            </Button>
           </CardContent>
         </Card>
       ) : (

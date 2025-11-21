@@ -169,8 +169,9 @@ export function ChatInterface({ negotiationId }: ChatInterfaceProps) {
     };
 
     ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-      setError("Connection error - check console for details");
+      // WebSocket errors are often transient and followed by a close event
+      // Don't show error to user yet - let onclose handler deal with it
+      console.warn("WebSocket connection error occurred");
       setConnected(false);
     };
 
@@ -187,6 +188,11 @@ export function ChatInterface({ negotiationId }: ChatInterfaceProps) {
         console.error("Authentication failed:", event.reason);
         setError(`Authentication failed: ${event.reason}`);
         return;
+      }
+
+      // Clear any previous errors during reconnection attempts
+      if (reconnectAttemptsRef.current < 5) {
+        setError(null);
       }
 
       // Attempt to reconnect with exponential backoff

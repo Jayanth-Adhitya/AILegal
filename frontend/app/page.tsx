@@ -17,7 +17,6 @@ import {
   Mail,
   MapPin,
   Phone,
-  Globe,
 } from "lucide-react";
 import {
   heroText,
@@ -58,12 +57,6 @@ export default function LandingPage() {
       title: "Policy Compliance",
       description:
         "Automatically check contracts against UAE legal requirements and internal policies.",
-    },
-    {
-      icon: Globe,
-      title: "UAE Legal Framework",
-      description:
-        "Regional knowledge base powered by UAE Federal Laws from moet.gov.ae for Dubai-based users.",
     },
     {
       icon: Zap,
@@ -165,18 +158,31 @@ export default function LandingPage() {
               </motion.div>
             </motion.div>
 
-            {/* Right side - Demo GIF placeholder */}
+            {/* Right side - Cirilla Mascot */}
             <motion.div
               initial={{ opacity: 0, x: 50 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.8, delay: 0.3 }}
-              className="relative hidden lg:block"
+              className="relative hidden lg:block overflow-hidden"
             >
-              <div className="glass-card rounded-2xl p-4 shadow-dual-xl">
-                <div className="aspect-video w-full rounded-lg bg-yellow-100/50 flex items-center justify-center">
-                  <span className="text-yellow-600 font-medium">Demo GIF Here</span>
-                </div>
-              </div>
+              <motion.div
+                whileHover={{ y: -8, scale: 1.02 }}
+                transition={{ duration: 0.3 }}
+                className="relative"
+                style={{
+                  maskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%)',
+                  WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%)',
+                }}
+              >
+                <img
+                  src="/assets/cirilla_bot/cirilla-mascot.png"
+                  alt="Cirilla AI Assistant"
+                  className="w-full h-auto object-contain"
+                  style={{
+                    filter: 'drop-shadow(0 25px 50px rgba(251, 191, 36, 0.4)) drop-shadow(0 10px 25px rgba(0, 0, 0, 0.15))',
+                  }}
+                />
+              </motion.div>
             </motion.div>
           </div>
         </div>

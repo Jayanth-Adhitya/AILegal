@@ -11,6 +11,26 @@ from .rate_limit_handler import RateLimitHandler
 
 logger = logging.getLogger(__name__)
 
+# Safety settings to prevent over-blocking of legal content
+SAFETY_SETTINGS = [
+    {
+        "category": "HARM_CATEGORY_HARASSMENT",
+        "threshold": "BLOCK_ONLY_HIGH"
+    },
+    {
+        "category": "HARM_CATEGORY_HATE_SPEECH",
+        "threshold": "BLOCK_ONLY_HIGH"
+    },
+    {
+        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+        "threshold": "BLOCK_ONLY_HIGH"
+    },
+    {
+        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+        "threshold": "BLOCK_ONLY_HIGH"
+    }
+]
+
 
 class BatchContractAnalyzer:
     """Analyze entire contract in a single batch API call."""
@@ -24,10 +44,12 @@ class BatchContractAnalyzer:
             model=settings.gemini_model,
             google_api_key=settings.google_api_key,
             temperature=settings.temperature,
-            max_output_tokens=max_tokens
+            max_output_tokens=max_tokens,
+            safety_settings=SAFETY_SETTINGS  # Prevent over-blocking of legal content
         )
 
         logger.info(f"BatchAnalyzer initialized with max_output_tokens={max_tokens}")
+        logger.info(f"Safety settings: BLOCK_ONLY_HIGH for all categories")
 
         self.policy_retriever = SmartPolicyRetriever()
         self.rate_limiter = RateLimitHandler(
@@ -120,15 +142,22 @@ class BatchContractAnalyzer:
         def api_call():
             logger.info(f"📤 Prompt length: {len(batch_prompt)} characters")
             logger.info(f"📤 Analyzing {len(clauses)} clauses")
+            logger.info(f"📤 Max output tokens: {settings.max_output_tokens}")
             try:
                 result = self.llm.invoke(
                     batch_prompt,
                     generation_config={
-                        "response_mime_type": "application/json"
-                    }
+                        "response_mime_type": "application/json",
+                        "max_output_tokens": settings.max_output_tokens
+                    },
+                    timeout=180  # 3-minute timeout for large contracts
                 )
                 logger.info("✅ API call successful")
                 return result
+            except TimeoutError as e:
+                logger.error(f"⏱️ API call timed out after 180 seconds")
+                logger.error(f"Consider reducing batch size or increasing timeout")
+                raise
             except Exception as e:
                 logger.error(f"❌ API call failed: {type(e).__name__}: {str(e)}")
                 raise
@@ -139,14 +168,60 @@ class BatchContractAnalyzer:
         # Log response details for debugging
         logger.info(f"📥 Received response from Gemini")
         logger.info(f"Response type: {type(response)}")
-        logger.info(f"Response content: {response.content}")
         logger.info(f"Response content length: {len(str(response.content))}")
 
-        # Check for response metadata (safety ratings, finish reason, etc.)
+        # Extract finish reason and metadata for diagnostics
+        finish_reason = None
+        safety_ratings = None
+        token_usage = None
+
         if hasattr(response, 'response_metadata'):
-            logger.info(f"Response metadata: {response.response_metadata}")
+            metadata = response.response_metadata
+            logger.info(f"Response metadata: {metadata}")
+
+            # Extract finish reason from various possible locations
+            if isinstance(metadata, dict):
+                # Direct finish_reason field
+                if 'finish_reason' in metadata:
+                    finish_reason = metadata['finish_reason']
+                # Nested in candidates array
+                elif 'candidates' in metadata and len(metadata['candidates']) > 0:
+                    candidate = metadata['candidates'][0]
+                    finish_reason = candidate.get('finishReason') or candidate.get('finish_reason')
+                    safety_ratings = candidate.get('safetyRatings') or candidate.get('safety_ratings')
+
+                # Extract token usage
+                if 'usage_metadata' in metadata:
+                    token_usage = metadata['usage_metadata']
+                    logger.info(f"Token usage: {token_usage}")
+
+            logger.info(f"Finish reason: {finish_reason}")
+            if safety_ratings:
+                logger.info(f"Safety ratings: {safety_ratings}")
+
         if hasattr(response, 'additional_kwargs'):
             logger.info(f"Additional kwargs: {response.additional_kwargs}")
+
+        # Check for truncation due to token limits
+        if finish_reason in ["MAX_TOKENS", "LENGTH"]:
+            error_msg = f"⚠️ Response truncated due to token limit!\n"
+            error_msg += f"Current limit: {settings.max_output_tokens} tokens\n"
+            error_msg += f"Analyzed clauses: {len(clauses)}\n"
+            if token_usage:
+                error_msg += f"Token usage: {token_usage}\n"
+            error_msg += f"SOLUTION: Increase MAX_OUTPUT_TOKENS or reduce batch size.\n"
+            error_msg += f"Recommended: MAX_OUTPUT_TOKENS >= {len(clauses) * 400}"
+            logger.error(error_msg)
+            raise ValueError(f"Response truncated - MAX_TOKENS limit reached. {error_msg}")
+
+        # Check for safety blocks
+        if finish_reason == "SAFETY":
+            error_msg = f"🚫 Response blocked by safety filters!\n"
+            if safety_ratings:
+                error_msg += f"Safety ratings: {safety_ratings}\n"
+            error_msg += f"SOLUTION: Adjust safety settings or review contract content for triggering terms."
+            logger.error(error_msg)
+            raise ValueError(f"Safety filter blocked response. {error_msg}")
 
         # Check if response was blocked
         if not response.content or len(str(response.content).strip()) == 0:
@@ -186,9 +261,20 @@ class BatchContractAnalyzer:
             return enriched_results
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse batch analysis response: {e}")
-            logger.error(f"Response content: {response.content[:500]}")
-            raise
+            logger.error(f"❌ JSON PARSING FAILED: {e}")
+            logger.error(f"Error details: {str(e)}")
+            logger.error(f"Response content preview (first 1000 chars):\n{response.content[:1000]}")
+            logger.error(f"Response content preview (last 500 chars):\n{response.content[-500:]}")
+
+            # Provide actionable error message
+            error_msg = f"Failed to parse Gemini response as JSON.\n"
+            error_msg += f"Error: {str(e)}\n"
+            error_msg += f"This usually means the response was truncated mid-string.\n"
+            error_msg += f"Current MAX_OUTPUT_TOKENS: {settings.max_output_tokens}\n"
+            error_msg += f"Number of clauses: {len(clauses)}\n"
+            error_msg += f"Recommended: Increase MAX_OUTPUT_TOKENS to at least {len(clauses) * 500}"
+
+            raise ValueError(error_msg) from e
 
     def _build_batch_analysis_prompt(
         self,
