@@ -487,7 +487,7 @@ az containerapp update \
 - `GOOGLE_API_KEY` - Google AI API key (required)
 - `GEMINI_MODEL` - Model to use (default: gemini-2.5-flash)
 - `TEMPERATURE` - AI creativity (0.0-1.0, default: 0.1)
-- `MAX_OUTPUT_TOKENS` - Max response length (default: 32768)
+- `MAX_OUTPUT_TOKENS` - Max response length (default: 65536)
 - `BATCH_MODE` - Enable batch processing (default: true)
 - `REQUESTS_PER_MINUTE` - Rate limit (default: 15)
 - `AZURE_CORS_ORIGINS` - Comma-separated allowed origins

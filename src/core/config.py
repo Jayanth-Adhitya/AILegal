@@ -42,7 +42,7 @@ class Settings(BaseSettings):
 
     # Generation Configuration
     temperature: float = 0.1  # Low temperature for consistent legal analysis
-    max_output_tokens: int = 32768  # Increased for batch analysis (Gemini 2.0 supports up to 65k)
+    max_output_tokens: int = 65536  # Increased for batch analysis (Gemini 2.0 supports up to 65k)
     top_p: float = 0.95
     top_k: int = 40
 
