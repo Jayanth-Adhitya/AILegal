@@ -152,8 +152,8 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
                 </p>
               </div>
 
-              <div className="w-full max-w-2xl space-y-2">
-                <p className="text-xs font-medium text-gray-500 uppercase px-4">
+              <div className="w-full max-w-xl mx-auto space-y-2">
+                <p className="text-xs font-medium text-gray-500 uppercase">
                   Suggested Questions
                 </p>
                 {suggestedQuestions.map((question, index) => (
