@@ -17,6 +17,7 @@ import {
   Mail,
   MapPin,
   Phone,
+  Globe,
 } from "lucide-react";
 import {
   heroText,
@@ -57,6 +58,12 @@ export default function LandingPage() {
       title: "Policy Compliance",
       description:
         "Automatically check contracts against UAE legal requirements and internal policies.",
+    },
+    {
+      icon: Globe,
+      title: "UAE Legal Framework",
+      description:
+        "Regional knowledge base powered by UAE Federal Laws from moet.gov.ae for Dubai-based users.",
     },
     {
       icon: Zap,
