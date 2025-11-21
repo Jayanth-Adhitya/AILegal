@@ -77,7 +77,7 @@ export default function AnalyzePage() {
       <div className="mx-auto max-w-4xl">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Contract Analysis</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Contract Management</h1>
           <p className="mt-2 text-gray-600">
             Upload a contract to analyze it against your company policies
           </p>
