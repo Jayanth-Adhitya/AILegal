@@ -2267,7 +2267,7 @@ async def chat_with_assistant(
     chat_request: ChatRequest,
     request: Request,
     auth_service: AuthService = Depends(get_auth_service),
-    db: Session = Depends(get_db)
+    db: DBSessionType = Depends(get_db)
 ):
     """
     Chat endpoint with Server-Sent Events streaming.
