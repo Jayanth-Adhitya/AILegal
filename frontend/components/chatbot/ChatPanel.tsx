@@ -171,7 +171,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ jobId, onClose }) => {
       {/* Header */}
       <div className="flex items-center justify-between border-b bg-blue-600 p-4 text-white">
         <div>
-          <h3 className="text-lg font-semibold">Legal Assistant</h3>
+          <h3 className="text-lg font-semibold">Contract Assistant</h3>
           <p className="text-sm opacity-90">Ask about your contract analysis</p>
         </div>
         {onClose && (

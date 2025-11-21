@@ -1,4 +1,4 @@
-"""FastAPI application for AI Legal Assistant."""
+"""FastAPI application for AI Contract Assistant."""
 
 import logging
 import os
@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="AI Legal Assistant API",
+    title="AI Contract Assistant API",
     description="Automated contract review and analysis system powered by Gemini",
     version="0.1.0"
 )
@@ -161,7 +161,7 @@ async def inject_region_context(request: Request, call_next):
 @app.on_event("startup")
 async def startup_event():
     """Initialize database and regional knowledge bases on application startup."""
-    logger.info("🚀 Starting AI Legal Assistant API...")
+    logger.info("🚀 Starting AI Contract Assistant API...")
     try:
         init_db()
         logger.info("✅ Database initialized and ready")
@@ -232,7 +232,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up resources on application shutdown."""
-    logger.info("🛑 Shutting down AI Legal Assistant API...")
+    logger.info("🛑 Shutting down AI Contract Assistant API...")
     try:
         await collab_ws_manager.stop()
         logger.info("✅ Collaboration service stopped")
@@ -408,7 +408,7 @@ class WordAddinAnalyzeTextRequest(BaseModel):
 async def root():
     """Root endpoint with API information."""
     return {
-        "name": "AI Legal Assistant API",
+        "name": "AI Contract Assistant API",
         "version": "0.1.0",
         "status": "operational",
         "endpoints": {
@@ -634,6 +634,7 @@ async def logout(
 @app.get("/api/auth/me")
 async def get_current_user(
     request: Request,
+    response: Response,
     auth_service: AuthService = Depends(get_auth_service)
 ):
     """Get current user info."""
@@ -647,6 +648,33 @@ async def get_current_user(
 
         if not user:
             raise HTTPException(status_code=401, detail="Session invalid or expired")
+
+        # Ensure ws_token cookie is set for WebSocket authentication
+        # This handles cases where users logged in before ws_token was added
+        ws_token = request.cookies.get("ws_token")
+        if not ws_token:
+            is_production = os.getenv("DEPLOYMENT_ENV") == "production" or os.getenv("WEBSITE_HOSTNAME")
+
+            ws_cookie_params = {
+                "key": "ws_token",
+                "value": session_id,
+                "httponly": False,  # JavaScript needs to read this for WebSocket connections
+                "max_age": 7 * 24 * 60 * 60
+            }
+
+            if is_production:
+                ws_cookie_params.update({
+                    "secure": True,
+                    "samesite": "none",
+                    "domain": ".cirilla.ai"
+                })
+            else:
+                ws_cookie_params.update({
+                    "secure": False,
+                    "samesite": "lax"
+                })
+
+            response.set_cookie(**ws_cookie_params)
 
         return {
             "success": True,
@@ -1747,7 +1775,14 @@ async def get_analysis_status(
         elif not use_db and "error" in job:
             response["message"] = job["error"]
 
-    return response
+    # Return with anti-buffering headers to prevent Traefik/nginx from buffering responses
+    return JSONResponse(
+        content=response,
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no"  # Disable buffering for nginx/Traefik
+        }
+    )
 
 
 @app.get("/api/contracts/{job_id}/download/{report_type}")
@@ -2496,6 +2531,8 @@ async def list_negotiations(
 @app.get("/api/negotiations/{negotiation_id}")
 async def get_negotiation(
     negotiation_id: str,
+    request: Request,
+    response: Response,
     user: DBUser = Depends(require_auth),
     negotiation_service: NegotiationService = Depends(get_negotiation_service)
 ):
@@ -2517,6 +2554,33 @@ async def get_negotiation(
     negotiation = negotiation_service.get_negotiation(negotiation_id)
     if not negotiation:
         raise HTTPException(status_code=404, detail="Negotiation not found")
+
+    # Ensure ws_token cookie is set for WebSocket authentication
+    session_id = request.cookies.get("session_id")
+    ws_token = request.cookies.get("ws_token")
+    if session_id and not ws_token:
+        is_production = os.getenv("DEPLOYMENT_ENV") == "production" or os.getenv("WEBSITE_HOSTNAME")
+
+        ws_cookie_params = {
+            "key": "ws_token",
+            "value": session_id,
+            "httponly": False,  # JavaScript needs to read this for WebSocket connections
+            "max_age": 7 * 24 * 60 * 60
+        }
+
+        if is_production:
+            ws_cookie_params.update({
+                "secure": True,
+                "samesite": "none",
+                "domain": ".cirilla.ai"
+            })
+        else:
+            ws_cookie_params.update({
+                "secure": False,
+                "samesite": "lax"
+            })
+
+        response.set_cookie(**ws_cookie_params)
 
     # Add unread count
     result = negotiation.to_dict()
@@ -2680,6 +2744,8 @@ async def send_message(
 @app.get("/api/negotiations/{negotiation_id}/messages")
 async def get_messages(
     negotiation_id: str,
+    request: Request,
+    response: Response,
     limit: int = 50,
     offset: int = 0,
     user: DBUser = Depends(require_auth),
@@ -2703,6 +2769,33 @@ async def get_messages(
     # Check access
     if not negotiation_service.can_user_access(negotiation_id, user.id):
         raise HTTPException(status_code=403, detail="You do not have access to this negotiation")
+
+    # Ensure ws_token cookie is set for WebSocket authentication
+    session_id = request.cookies.get("session_id")
+    ws_token = request.cookies.get("ws_token")
+    if session_id and not ws_token:
+        is_production = os.getenv("DEPLOYMENT_ENV") == "production" or os.getenv("WEBSITE_HOSTNAME")
+
+        ws_cookie_params = {
+            "key": "ws_token",
+            "value": session_id,
+            "httponly": False,  # JavaScript needs to read this for WebSocket connections
+            "max_age": 7 * 24 * 60 * 60
+        }
+
+        if is_production:
+            ws_cookie_params.update({
+                "secure": True,
+                "samesite": "none",
+                "domain": ".cirilla.ai"
+            })
+        else:
+            ws_cookie_params.update({
+                "secure": False,
+                "samesite": "lax"
+            })
+
+        response.set_cookie(**ws_cookie_params)
 
     result = message_service.get_message_history(
         negotiation_id=negotiation_id,

@@ -1,4 +1,4 @@
-# AI Legal Assistant
+# AI Contract Assistant
 
 An automated contract review and analysis system powered by Google Gemini 2.5 Flash, ChromaDB, and LangChain. This system acts as a "digital twin" of a legal associate, automatically reviewing contracts against company policies and generating tracked-changes documents.
 

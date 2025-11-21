@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== AI Legal Assistant Startup ==="
+echo "=== AI Contract Assistant Startup ==="
 
 # Apply database schema migrations
 echo "📋 Checking database schema..."

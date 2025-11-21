@@ -130,7 +130,7 @@ export default function LandingPage() {
                   <ShuffleText text="Cirilla" duration={3000} />
                 </GradientText>
                 <span className="block text-2xl xs:text-3xl sm:text-4xl lg:text-5xl mt-2 text-gray-700">
-                  AI-Powered Legal Assistant
+                  AI-Powered Contract Assistant
                 </span>
               </motion.h1>
 
@@ -406,7 +406,7 @@ export default function LandingPage() {
                 </span>
               </div>
               <p className="text-sm text-gray-600">
-                AI-Powered Legal Assistant for modern legal teams.
+                AI-Powered Contract Assistant for modern legal teams.
               </p>
             </div>
             <div>
