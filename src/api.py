@@ -1251,10 +1251,10 @@ async def policies_general_chat(
 
         # Get all policies for the user's company
         policy_service = PolicyService(db)
-        policies = db.query(DBPolicy).filter(
-            DBPolicy.company_id == user.company_id,
-            DBPolicy.status == "active"
-        ).all()
+        policies = policy_service.list_policies(
+            company_id=user.company_id,
+            status="active"
+        )
 
         # Build context from all policies (or inform if none exist)
         if not policies or len(policies) == 0:
