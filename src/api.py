@@ -2134,6 +2134,74 @@ async def reingest_policies():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/policies/clear-embeddings")
+async def clear_policy_embeddings(
+    user: DBUser = Depends(require_auth)
+):
+    """
+    Clear all policy embeddings from ChromaDB for the authenticated user's company.
+
+    This removes all policy vectors from the vector store for the user's company.
+    Policies in the database are NOT deleted - only the embeddings.
+    You'll need to re-ingest policies after clearing.
+
+    Returns:
+        Status of the clear operation
+    """
+    try:
+        import chromadb
+        from chromadb.config import Settings as ChromaSettings
+
+        logger.info(f"Clearing policy embeddings for company {user.company_id} by user {user.email}")
+
+        # Initialize ChromaDB client
+        chroma_client = chromadb.PersistentClient(
+            path=str(settings.chroma_persist_directory),
+            settings=ChromaSettings(anonymized_telemetry=False)
+        )
+
+        # Get collection
+        try:
+            collection = chroma_client.get_collection(settings.chroma_collection_name)
+        except Exception:
+            return {
+                "status": "success",
+                "message": "No policy embeddings found (collection doesn't exist)",
+                "cleared_count": 0
+            }
+
+        # Get all documents for this company
+        results = collection.get(
+            where={"company_id": user.company_id},
+            include=["metadatas"]
+        )
+
+        if not results["ids"]:
+            return {
+                "status": "success",
+                "message": "No policy embeddings found for your company",
+                "cleared_count": 0
+            }
+
+        count = len(results["ids"])
+        logger.info(f"Found {count} policy chunks for company {user.company_id}")
+
+        # Delete by IDs
+        collection.delete(ids=results["ids"])
+
+        logger.info(f"Cleared {count} policy embeddings for company {user.company_id}")
+
+        return {
+            "status": "success",
+            "message": f"Cleared {count} policy embeddings. Please re-ingest your policies.",
+            "cleared_count": count
+        }
+
+    except Exception as e:
+        logger.error(f"Error clearing policy embeddings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to clear embeddings: {str(e)}")
+
+
 @app.get("/api/policies/stats")
 async def get_policy_stats():
     """

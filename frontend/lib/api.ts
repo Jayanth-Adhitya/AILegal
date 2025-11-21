@@ -167,6 +167,18 @@ export const policyApi = {
       handleApiError(error);
     }
   },
+
+  // Clear policy embeddings from ChromaDB
+  async clearEmbeddings(): Promise<{ status: string; message: string; cleared_count: number }> {
+    try {
+      const response = await api.post<{ status: string; message: string; cleared_count: number }>(
+        `/api/policies/clear-embeddings`
+      );
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
 };
 
 // Contract Analysis API

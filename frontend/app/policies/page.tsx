@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { FileText, RefreshCw, AlertCircle } from "lucide-react";
+import { FileText, RefreshCw, AlertCircle, Trash2 } from "lucide-react";
 import { PolicyUpload } from "@/components/policies/policy-upload";
 import { PolicyList } from "@/components/policies/policy-list";
 import { PolicyChatbot } from "@/components/policies/policy-chatbot";
@@ -17,6 +17,7 @@ export default function PoliciesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reingesting, setReingesting] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [view, setView] = useState<"policies" | "chat">("policies");
 
   const loadPolicies = async () => {
@@ -41,6 +42,24 @@ export default function PoliciesPage() {
       setError(err instanceof Error ? err.message : "Failed to reingest policies");
     } finally {
       setReingesting(false);
+    }
+  };
+
+  const handleClearEmbeddings = async () => {
+    if (!confirm("⚠️ This will clear all policy embeddings from the vector database. You'll need to re-ingest your policies. Continue?")) {
+      return;
+    }
+
+    setClearing(true);
+    setError(null);
+    try {
+      const result = await policyApi.clearEmbeddings();
+      alert(`✅ ${result.message}\n\nCleared ${result.cleared_count} embeddings.`);
+      await loadPolicies();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to clear embeddings");
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -117,14 +136,24 @@ export default function PoliciesPage() {
                 <h2 className="text-lg font-semibold text-gray-900">
                   Uploaded Policies ({policies.length})
                 </h2>
-                <Button
-                  variant="outline"
-                  onClick={handleReingest}
-                  disabled={reingesting || policies.length === 0}
-                >
-                  <RefreshCw className={`mr-2 h-4 w-4 ${reingesting ? "animate-spin" : ""}`} />
-                  Reingest Policies
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleReingest}
+                    disabled={reingesting || policies.length === 0}
+                  >
+                    <RefreshCw className={`mr-2 h-4 w-4 ${reingesting ? "animate-spin" : ""}`} />
+                    Reingest Policies
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={handleClearEmbeddings}
+                    disabled={clearing}
+                  >
+                    <Trash2 className={`mr-2 h-4 w-4 ${clearing ? "animate-spin" : ""}`} />
+                    Clear Embeddings
+                  </Button>
+                </div>
               </div>
 
               {loading ? (
