@@ -130,11 +130,15 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
           {messages.length === 0 ? (
             <div className="flex items-center gap-8 w-full">
               {/* Left side - Cirilla Image */}
-              <div className="flex-shrink-0">
+              <div className="flex-shrink-0 relative h-56 w-56">
                 <img
                   src="/assets/cirilla_bot/cirilla-bot-analyze.png"
                   alt="Cirilla AI"
                   className="h-56 w-56 object-contain"
+                  style={{
+                    maskImage: 'linear-gradient(to bottom, black 70%, transparent 100%)',
+                    WebkitMaskImage: 'linear-gradient(to bottom, black 70%, transparent 100%)'
+                  }}
                 />
               </div>
 
