@@ -82,23 +82,23 @@ export default function PoliciesPage() {
         <div className="mb-6 flex items-center gap-2">
           <button
             onClick={() => setView("policies")}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+            className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
               view === "policies"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                ? "bg-gradient-to-r from-yellow-400 to-yellow-500 text-gray-900 shadow-dual-sm"
+                : "bg-gray-100 text-gray-700 hover:bg-yellow-100/50 hover:text-gray-900"
             }`}
           >
-            Policies View
+            Upload Policies
           </button>
           <button
             onClick={() => setView("chat")}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+            className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
               view === "chat"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                ? "bg-gradient-to-r from-yellow-400 to-yellow-500 text-gray-900 shadow-dual-sm"
+                : "bg-gray-100 text-gray-700 hover:bg-yellow-100/50 hover:text-gray-900"
             }`}
           >
-            Chat View
+            Cirilla AI
           </button>
         </div>
 
