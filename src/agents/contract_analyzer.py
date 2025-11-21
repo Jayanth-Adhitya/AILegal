@@ -18,8 +18,8 @@ from ..document_processing import (
     DocxGenerator,
     AnalysisReportGenerator
 )
-from .policy_checker import PolicyChecker, SAFETY_SETTINGS
-from .batch_contract_analyzer import BatchContractAnalyzer
+from .policy_checker import PolicyChecker
+from .batch_contract_analyzer import BatchContractAnalyzer, SAFETY_SETTINGS
 
 logger = logging.getLogger(__name__)
 
