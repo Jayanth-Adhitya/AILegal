@@ -43,7 +43,7 @@ const navigation = [
     icon: FileText,
   },
   {
-    name: "Analyze Contract",
+    name: "Contracts",
     href: "/analyze",
     icon: Upload,
   },
