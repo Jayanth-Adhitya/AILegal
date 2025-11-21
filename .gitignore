@@ -26,9 +26,12 @@ wheels/
 
 # Environment
 .env
+.env.*
 .env.local
 .env.production
+.env.azure
 .env.azure.local
+.env.vps
 
 # Database
 legal_ai.db
