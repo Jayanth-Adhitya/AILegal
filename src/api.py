@@ -1256,40 +1256,51 @@ async def policies_general_chat(
             DBPolicy.status == "active"
         ).all()
 
+        # Build context from all policies (or inform if none exist)
         if not policies or len(policies) == 0:
-            raise HTTPException(status_code=404, detail="No policies found. Please upload policies first.")
+            policy_context = "IMPORTANT: The company currently has NO policies uploaded to the system."
+            system_prompt = """You are an AI assistant helping users with their company's policy documents.
 
-        # Build context from all policies
-        context_parts = [
-            f"You have access to {len(policies)} company policies:",
-            ""
-        ]
+IMPORTANT: The company currently has NO policies uploaded to the system.
 
-        for policy in policies:
-            context_parts.append(f"\n{'='*60}")
-            context_parts.append(f"POLICY: {policy.title}")
-            context_parts.append(f"Policy Number: {policy.policy_number or 'N/A'}")
-            context_parts.append(f"Version: {policy.version}")
-            context_parts.append(f"{'='*60}\n")
+Inform the user in a friendly and helpful way that:
+1. No policies have been uploaded yet
+2. They can upload policies by switching to "Policies View" in the policy management page
+3. Once policies are uploaded, you'll be able to help them understand and analyze the policies
+4. You can answer general questions about policy management or what kinds of policies they might want to upload
 
-            # Add policy content
-            if policy.sections and len(policy.sections) > 0:
-                for section in sorted(policy.sections, key=lambda s: s.section_order):
-                    section_header = f"{section.section_number}. {section.section_title}" if section.section_number and section.section_title else f"Section {section.section_order + 1}"
-                    context_parts.append(f"\n{section_header}")
-                    context_parts.append(section.section_content)
-            elif policy.full_text:
-                context_parts.append(policy.full_text)
+Be conversational and helpful. Offer guidance on policy management best practices if asked."""
+        else:
+            context_parts = [
+                f"You have access to {len(policies)} company policies:",
+                ""
+            ]
 
-        policy_context = "\n".join(context_parts)
+            for policy in policies:
+                context_parts.append(f"\n{'='*60}")
+                context_parts.append(f"POLICY: {policy.title}")
+                context_parts.append(f"Policy Number: {policy.policy_number or 'N/A'}")
+                context_parts.append(f"Version: {policy.version}")
+                context_parts.append(f"{'='*60}\n")
 
-        # Truncate if too long (keep under 100k chars)
-        if len(policy_context) > 100000:
-            policy_context = policy_context[:100000] + "\n... (content truncated)"
-            logger.warning(f"Policies context truncated for company {user.company_id}")
+                # Add policy content
+                if policy.sections and len(policy.sections) > 0:
+                    for section in sorted(policy.sections, key=lambda s: s.section_order):
+                        section_header = f"{section.section_number}. {section.section_title}" if section.section_number and section.section_title else f"Section {section.section_order + 1}"
+                        context_parts.append(f"\n{section_header}")
+                        context_parts.append(section.section_content)
+                elif policy.full_text:
+                    context_parts.append(policy.full_text)
 
-        # Build system prompt
-        system_prompt = f"""You are an AI assistant helping users understand their company's policy documents.
+            policy_context = "\n".join(context_parts)
+
+            # Truncate if too long (keep under 100k chars)
+            if len(policy_context) > 100000:
+                policy_context = policy_context[:100000] + "\n... (content truncated)"
+                logger.warning(f"Policies context truncated for company {user.company_id}")
+
+            # Build system prompt
+            system_prompt = f"""You are an AI assistant helping users understand their company's policy documents.
 
 {policy_context}
 

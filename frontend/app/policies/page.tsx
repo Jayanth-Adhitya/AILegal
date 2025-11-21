@@ -141,18 +141,7 @@ export default function PoliciesPage() {
         ) : (
           <>
             {/* Chat View */}
-            {policies.length === 0 && !loading ? (
-              <Alert className="mb-6">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>No Policies Found</AlertTitle>
-                <AlertDescription>
-                  Please upload policies first before using the chat feature.
-                  Switch to &quot;Policies View&quot; to upload your company policies.
-                </AlertDescription>
-              </Alert>
-            ) : (
-              <PolicyChatbot />
-            )}
+            <PolicyChatbot />
           </>
         )}
       </div>
