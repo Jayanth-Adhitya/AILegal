@@ -134,11 +134,11 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center space-y-6">
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <img
-                  src="/assets/cirilla_bot/cirilla-mascot.png"
+                  src="/assets/cirilla_bot/cirilla-bot-analyze.png"
                   alt="Cirilla AI"
-                  className="h-24 w-24 rounded-full object-cover mx-auto"
+                  className="h-32 w-32 object-contain mx-auto"
                 />
                 <h3 className="text-lg font-semibold text-gray-900">
                   {policy
