@@ -2266,7 +2266,8 @@ async def chat_with_assistant(
     job_id: str,
     chat_request: ChatRequest,
     request: Request,
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
+    db: Session = Depends(get_db)
 ):
     """
     Chat endpoint with Server-Sent Events streaming.
@@ -2279,30 +2280,70 @@ async def chat_with_assistant(
     Returns:
         SSE stream with assistant response
     """
-    # Check if job exists
-    if job_id not in analysis_jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    job = analysis_jobs[job_id]
-
     # Check ownership if user is authenticated
     session_id = request.cookies.get("session_id")
     current_user = auth_service.get_user_by_session(session_id) if session_id else None
 
-    if current_user and job.get("user_id"):
-        # If both user and job have user_id, check ownership
-        if job["user_id"] != current_user.id:
+    # Try to get job from in-memory dictionary first (fast path)
+    job = None
+    result = None
+
+    if job_id in analysis_jobs:
+        # Job found in memory
+        job = analysis_jobs[job_id]
+
+        # Check ownership
+        if current_user and job.get("user_id"):
+            if job["user_id"] != current_user.id:
+                raise HTTPException(status_code=403, detail="Access denied - not your contract")
+
+        # Check if analysis is complete
+        if job.get("status") != "completed":
+            raise HTTPException(
+                status_code=400,
+                detail="Analysis not yet completed. Please wait for analysis to finish."
+            )
+
+        # Get the result object
+        result = job.get("result") or job.get("results", {})
+    else:
+        # Job not in memory, try database (for jobs from previous server sessions)
+        logger.info(f"Job {job_id} not in memory, querying database...")
+        db_job = db.query(DBAnalysisJob).filter(DBAnalysisJob.job_id == job_id).first()
+
+        if not db_job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        # Check ownership
+        if current_user and db_job.user_id != current_user.id:
             raise HTTPException(status_code=403, detail="Access denied - not your contract")
 
-    # Check if analysis is complete
-    if job.get("status") != "completed":
-        raise HTTPException(
-            status_code=400,
-            detail="Analysis not yet completed. Please wait for analysis to finish."
-        )
+        # Check if analysis is complete
+        if db_job.status != "completed":
+            raise HTTPException(
+                status_code=400,
+                detail="Analysis not yet completed. Please wait for analysis to finish."
+            )
 
-    # Get the COMPLETE result object - check both "result" and "results" keys
-    result = job.get("result") or job.get("results", {})
+        # Parse result_json from database
+        if not db_job.result_json:
+            raise HTTPException(status_code=400, detail="Analysis results not available")
+
+        try:
+            result = json.loads(db_job.result_json)
+            logger.info(f"Loaded job {job_id} from database")
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse result_json for job {job_id}")
+            raise HTTPException(status_code=500, detail="Failed to load analysis results")
+
+        # Create a job-like dict for consistency with the rest of the code
+        job = {
+            "job_id": db_job.job_id,
+            "user_id": db_job.user_id,
+            "status": db_job.status,
+            "filename": db_job.filename,
+            "result": result
+        }
 
     # DEBUG: Log what we actually have
     logger.info(f"DEBUG - Job keys: {list(job.keys())}")
