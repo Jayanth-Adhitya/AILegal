@@ -60,6 +60,16 @@ services:
       - MAX_BATCH_SIZE=${MAX_BATCH_SIZE:-50}
       - REQUESTS_PER_MINUTE=${REQUESTS_PER_MINUTE:-15}
       - REQUESTS_PER_DAY=${REQUESTS_PER_DAY:-250}
+
+      # SMTP Email Configuration (for password reset)
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-465}
+      - SMTP_USE_SSL=${SMTP_USE_SSL:-true}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
+      - SMTP_FROM_NAME=${SMTP_FROM_NAME:-Cirilla AI}
+      - FRONTEND_URL=${FRONTEND_URL}
     volumes:
       - backend_data:/app/data
     # Temporarily disable health check for debugging
