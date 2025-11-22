@@ -29,6 +29,89 @@ class PolicyService:
         self.db = db
         self.parser = PolicyParserService()
 
+    def create_policy(
+        self,
+        policy_id: str,
+        company_id: str,
+        created_by_user_id: str,
+        title: str,
+        policy_number: Optional[str],
+        version: str,
+        effective_date: Optional[datetime],
+        original_filename: str,
+        file_path: str,
+        file_size: int,
+        file_type: str,
+        full_text: str,
+        parsed_data: ParsedPolicy,
+        metadata: Optional[Dict] = None
+    ) -> Policy:
+        """
+        Create a policy from already-parsed data.
+
+        Args:
+            policy_id: Unique ID for the policy
+            company_id: Company ID for multi-tenant isolation
+            created_by_user_id: User ID who created the policy
+            title: Policy title
+            policy_number: Policy number (optional)
+            version: Policy version
+            effective_date: Effective date (optional)
+            original_filename: Original filename
+            file_path: Path to policy file
+            file_size: File size in bytes
+            file_type: File extension ('pdf', 'txt', 'md')
+            full_text: Full text content
+            parsed_data: ParsedPolicy object with sections
+            metadata: Additional metadata (optional)
+
+        Returns:
+            Created Policy object with sections
+        """
+        # Create policy record
+        policy = Policy(
+            id=policy_id,
+            company_id=company_id,
+            created_by_user_id=created_by_user_id,
+            title=title,
+            policy_number=policy_number,
+            version=version,
+            effective_date=effective_date,
+            original_filename=original_filename,
+            file_path=file_path,
+            file_size=file_size,
+            file_type=file_type,
+            full_text=full_text,
+            status='draft' if parsed_data.parsing_status == 'failed' else 'active',
+            created_at=datetime.now(),
+            updated_at=datetime.now()
+        )
+
+        self.db.add(policy)
+
+        # Create section records
+        for parsed_section in parsed_data.sections:
+            section_id = str(uuid.uuid4())
+            section = PolicySection(
+                id=section_id,
+                policy_id=policy_id,
+                section_number=parsed_section.section_number,
+                section_title=parsed_section.section_title,
+                section_content=parsed_section.section_content,
+                section_order=parsed_section.section_order,
+                section_type=parsed_section.section_type,
+                parent_section_id=parsed_section.parent_section_id,
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+            self.db.add(section)
+
+        self.db.commit()
+        self.db.refresh(policy)
+
+        logger.info(f"Created policy {policy_id} with {len(parsed_data.sections)} sections (status: {parsed_data.parsing_status})")
+        return policy
+
     def create_policy_from_upload(
         self,
         file_path: str,

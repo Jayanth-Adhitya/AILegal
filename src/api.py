@@ -15,6 +15,22 @@ from pydantic import BaseModel
 import asyncio
 import json
 from typing import AsyncGenerator
+from dotenv import load_dotenv
+from pathlib import Path as DotenvPath
+
+# Load environment variables from .env file
+# Get the root directory (parent of src/)
+import sys
+env_path = DotenvPath(__file__).parent.parent / '.env'
+if env_path.exists():
+    load_dotenv(dotenv_path=str(env_path), override=True)
+    sys.stderr.write(f"✅ Loaded .env from: {env_path}\n")
+    sys.stderr.write(f"   SMTP_HOST={os.getenv('SMTP_HOST')}\n")
+    sys.stderr.write(f"   SMTP_PORT={os.getenv('SMTP_PORT')}\n")
+    sys.stderr.flush()
+else:
+    sys.stderr.write(f"❌ .env file not found at: {env_path}\n")
+    sys.stderr.flush()
 
 from .core.config import settings
 from .agents.contract_analyzer import ContractAnalyzer
@@ -22,6 +38,7 @@ from .vector_store.embeddings import PolicyEmbeddings
 from .vector_store.retriever import PolicyRetriever
 from .services.groq_service import groq_service
 from .services.auth_service import AuthService
+from .services.email_service import EmailService
 from .core.prompts import CHATBOT_PROMPT, CHATBOT_POLICY_SEARCH_PROMPT
 from langchain_google_genai import ChatGoogleGenerativeAI
 from .database import init_db, get_db, User as DBUser, Session as DBSession, AnalysisJob as DBAnalysisJob, Negotiation, NegotiationMessage, Document
@@ -165,6 +182,19 @@ async def startup_event():
     try:
         init_db()
         logger.info("✅ Database initialized and ready")
+
+        # Cleanup expired password reset tokens
+        try:
+            from .database import get_db as get_db_gen
+            db = next(get_db_gen())
+            auth_service = AuthService(db)
+            cleanup_count = auth_service.cleanup_expired_reset_tokens()
+            if cleanup_count > 0:
+                logger.info(f"✅ Cleaned up {cleanup_count} expired password reset tokens")
+            db.close()
+        except Exception as cleanup_error:
+            logger.warning(f"⚠️  Failed to cleanup expired tokens: {cleanup_error}")
+
     except Exception as e:
         logger.error(f"❌ Failed to initialize database: {e}", exc_info=True)
         # Continue anyway so container stays up for debugging
@@ -337,6 +367,18 @@ class LoginRequest(BaseModel):
     """Request model for user login."""
     email: str
     password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Request model for password reset request."""
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    """Request model for password reset."""
+    token: str
+    new_password: str
+    confirm_password: str
 
 
 class AuthResponse(BaseModel):
@@ -629,6 +671,152 @@ async def logout(
     except Exception as e:
         logger.error(f"Logout error: {e}")
         return {"success": False, "message": "Logout failed"}
+
+
+@app.get("/api/auth/test-email")
+async def test_email():
+    """Test SMTP email configuration."""
+    try:
+        email_service = EmailService()
+
+        # Test connection
+        connection_ok = email_service.test_connection()
+
+        return {
+            "success": connection_ok,
+            "smtp_configured": all([email_service.smtp_host, email_service.smtp_user, email_service.smtp_password]),
+            "smtp_host": email_service.smtp_host,
+            "smtp_port": email_service.smtp_port,
+            "smtp_user": email_service.smtp_user,
+            "from_email": email_service.from_email,
+            "message": "SMTP connection successful" if connection_ok else "SMTP connection failed"
+        }
+    except Exception as e:
+        logger.error(f"Email test error: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@app.post("/api/auth/forgot-password")
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Request a password reset email."""
+    try:
+        # Request password reset token
+        result = auth_service.request_password_reset(request.email)
+
+        # Always return success to prevent email enumeration
+        if result.get("user_exists") and result.get("token") and not result.get("rate_limited"):
+            # Send password reset email
+            email_service = EmailService()
+            frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+            logger.info(f"Attempting to send password reset email to {request.email}")
+
+            email_sent = email_service.send_password_reset_email(
+                to_email=request.email,
+                reset_token=result["token"],
+                frontend_url=frontend_url
+            )
+
+            if not email_sent:
+                logger.error(f"❌ Failed to send password reset email to {request.email}")
+            else:
+                logger.info(f"✅ Password reset email sent successfully to {request.email}")
+
+        # Return generic success message to prevent enumeration
+        return {
+            "success": True,
+            "message": "If an account exists with this email, you will receive a password reset link shortly."
+        }
+
+    except Exception as e:
+        logger.error(f"Forgot password error: {e}")
+        # Return success even on error to prevent enumeration
+        return {
+            "success": True,
+            "message": "If an account exists with this email, you will receive a password reset link shortly."
+        }
+
+
+@app.get("/api/auth/validate-reset-token/{token}")
+async def validate_reset_token(
+    token: str,
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Validate a password reset token."""
+    try:
+        result = auth_service.validate_reset_token(token)
+
+        if result.get("valid"):
+            return {
+                "valid": True,
+                "email": result.get("email")
+            }
+        else:
+            return {
+                "valid": False,
+                "error": result.get("error", "Invalid or expired reset token")
+            }
+
+    except Exception as e:
+        logger.error(f"Token validation error: {e}")
+        return {
+            "valid": False,
+            "error": "Invalid or expired reset token"
+        }
+
+
+@app.post("/api/auth/reset-password")
+async def reset_password(
+    request: ResetPasswordRequest,
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Reset user password with a valid token."""
+    try:
+        # Validate password confirmation
+        if request.new_password != request.confirm_password:
+            return {
+                "success": False,
+                "error": "Passwords do not match"
+            }
+
+        # Reset the password
+        result = auth_service.reset_password(request.token, request.new_password)
+
+        if result.get("success"):
+            # Send confirmation email
+            email_service = EmailService()
+            frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+            user = result.get("user")
+
+            if user:
+                email_service.send_password_changed_confirmation(
+                    to_email=user["email"],
+                    timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC"),
+                    frontend_url=frontend_url
+                )
+
+            return {
+                "success": True,
+                "message": "Password reset successful. Please log in with your new password."
+            }
+        else:
+            return {
+                "success": False,
+                "error": result.get("error", "Password reset failed")
+            }
+
+    except Exception as e:
+        logger.error(f"Reset password error: {e}")
+        return {
+            "success": False,
+            "error": "Password reset failed"
+        }
 
 
 @app.get("/api/auth/me")
@@ -933,6 +1121,332 @@ async def list_policies(
         raise HTTPException(status_code=500, detail="Failed to list policies")
 
 
+# ===== AI Policy Generation Endpoints =====
+# NOTE: These must be defined BEFORE the {policy_id} route to avoid route conflicts
+
+class GenerateQuestionsRequest(BaseModel):
+    """Request model for generating policy questions."""
+    policy_type: str
+    user_context: Optional[Dict[str, Any]] = None
+
+
+class QuestionResponse(BaseModel):
+    """Response model for a single question."""
+    id: str
+    text: str
+    type: str  # 'text', 'select', 'multiselect', 'number', 'date'
+    options: Optional[List[str]] = None
+    required: bool = True
+    help_text: Optional[str] = None
+    placeholder: Optional[str] = None
+
+
+class GenerateQuestionsResponse(BaseModel):
+    """Response model for question generation."""
+    questions: List[QuestionResponse]
+    estimated_time: str = "5-7 minutes"
+
+
+class GeneratePolicyRequest(BaseModel):
+    """Request model for generating a policy."""
+    policy_type: str
+    answers: List[Dict[str, Any]]  # [{"question_id": "...", "question_text": "...", "value": "..."}]
+    additional_notes: Optional[str] = None
+
+
+class PolicySectionResponse(BaseModel):
+    """Response model for policy section."""
+    section_number: str
+    section_title: str
+    section_content: str
+
+
+class GeneratedPolicyResponse(BaseModel):
+    """Response model for generated policy."""
+    title: str
+    content: str
+    sections: List[PolicySectionResponse]
+    metadata: Dict[str, Any]
+    version: str = "1.0"
+    generation_time_seconds: Optional[float] = None
+
+
+class SaveGeneratedPolicyRequest(BaseModel):
+    """Request model for saving generated policy."""
+    title: str
+    content: str
+    sections: List[Dict[str, str]]
+    metadata: Dict[str, Any]
+    policy_type: str
+
+
+class SaveGeneratedPolicyResponse(BaseModel):
+    """Response model for save operation."""
+    policy_id: str
+    title: str
+    status: str
+    ingestion_status: str
+    embeddings_count: int
+    message: str
+
+
+@app.get("/api/policies/types")
+async def get_policy_types(user: DBUser = Depends(require_auth)):
+    """
+    Get available policy types for AI generation.
+
+    Returns:
+        Dictionary of policy types organized by category
+    """
+    try:
+        from src.core.constants import get_policy_types_dict, POLICY_TYPES
+
+        return {
+            "status": "success",
+            "policy_types": get_policy_types_dict(),
+            "total_count": len(POLICY_TYPES)
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting policy types: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/policies/generate-questions", response_model=GenerateQuestionsResponse)
+async def generate_policy_questions(
+    request: GenerateQuestionsRequest,
+    user: DBUser = Depends(require_auth)
+):
+    """
+    Generate contextual questions for a policy type using LLM.
+
+    Args:
+        request: Policy type and optional company context
+
+    Returns:
+        List of questions to gather policy requirements
+    """
+    try:
+        from src.core.constants import validate_policy_type
+        from src.services.policy_generation_service import policy_generation_service
+        import time
+
+        # Validate policy type
+        if not validate_policy_type(request.policy_type):
+            raise HTTPException(status_code=400, detail=f"Invalid policy type: {request.policy_type}")
+
+        # Add company context
+        company_context = request.user_context or {}
+        company_context["company_name"] = user.company_name
+
+        # Generate questions
+        start_time = time.time()
+        questions = policy_generation_service.generate_questions(
+            policy_type_id=request.policy_type,
+            company_context=company_context
+        )
+        elapsed_time = time.time() - start_time
+
+        logger.info(f"Generated {len(questions)} questions in {elapsed_time:.2f}s for user {user.email}")
+
+        # Convert to response model
+        question_responses = [QuestionResponse(**q.to_dict()) for q in questions]
+
+        return GenerateQuestionsResponse(questions=question_responses)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating questions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate questions: {str(e)}")
+
+
+@app.post("/api/policies/generate-policy", response_model=GeneratedPolicyResponse)
+async def generate_policy_document(
+    request: GeneratePolicyRequest,
+    user: DBUser = Depends(require_auth)
+):
+    """
+    Generate a complete policy document based on user answers.
+
+    Args:
+        request: Policy type, answers, and optional additional notes
+
+    Returns:
+        Generated policy document with sections and metadata
+    """
+    try:
+        from src.core.constants import validate_policy_type
+        from src.services.policy_generation_service import policy_generation_service
+        import time
+
+        # Validate policy type
+        if not validate_policy_type(request.policy_type):
+            raise HTTPException(status_code=400, detail=f"Invalid policy type: {request.policy_type}")
+
+        # Validate answers
+        if not request.answers or len(request.answers) < 5:
+            raise HTTPException(
+                status_code=400,
+                detail="Insufficient answers provided. At least 5 questions must be answered."
+            )
+
+        # Rate limiting: Check generation count (simple in-memory, should use DB in production)
+        # TODO: Implement proper rate limiting with DB tracking
+
+        # Generate policy
+        start_time = time.time()
+        result = policy_generation_service.generate_policy(
+            policy_type_id=request.policy_type,
+            answers=request.answers,
+            additional_notes=request.additional_notes,
+            company_name=user.company_name
+        )
+        elapsed_time = time.time() - start_time
+
+        logger.info(f"Generated policy in {elapsed_time:.2f}s for user {user.email}")
+
+        # Convert sections to response model
+        section_responses = [
+            PolicySectionResponse(**section)
+            for section in result["sections"]
+        ]
+
+        return GeneratedPolicyResponse(
+            title=result["title"],
+            content=result["content"],
+            sections=section_responses,
+            metadata=result["metadata"],
+            version=result["version"],
+            generation_time_seconds=elapsed_time
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating policy: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate policy: {str(e)}")
+
+
+@app.post("/api/policies/save-generated", response_model=SaveGeneratedPolicyResponse)
+async def save_generated_policy(
+    request: SaveGeneratedPolicyRequest,
+    user: DBUser = Depends(require_auth),
+    db: DBSessionType = Depends(get_db)
+):
+    """
+    Save AI-generated policy to database and ingest into ChromaDB.
+
+    Args:
+        request: Generated policy data
+        user: Authenticated user
+        db: Database session
+
+    Returns:
+        Saved policy information and ingestion status
+    """
+    from src.services.policy_service import PolicyService
+    from src.services.policy_parser import PolicyParserService
+    from src.vector_store.embeddings import PolicyEmbeddings
+    import uuid
+    from datetime import datetime
+    import json
+
+    # Variables to track success
+    policy_id = None
+    policy_title = request.title
+    ingestion_status = "pending"
+    embeddings_count = 0
+
+    try:
+        # Create PolicyService instance
+        policy_service = PolicyService(db)
+        parser_service = PolicyParserService()
+
+        # Parse the generated content
+        # Save content to temp file for parsing
+        temp_file_path = Path(settings.upload_dir) / f"temp_generated_{uuid.uuid4()}.md"
+        temp_file_path.write_text(request.content, encoding='utf-8')
+
+        try:
+            parsed_policy = parser_service.parse_document(str(temp_file_path), "md")
+        finally:
+            # Clean up temp file
+            if temp_file_path.exists():
+                temp_file_path.unlink()
+
+        # Enhance metadata with AI generation info
+        metadata = request.metadata.copy()
+        metadata["generated_at"] = datetime.now().isoformat()
+
+        # Create policy in database
+        policy_id = str(uuid.uuid4())
+        policy = policy_service.create_policy(
+            policy_id=policy_id,
+            company_id=user.company_id,
+            created_by_user_id=user.id,
+            title=request.title,
+            policy_number=None,
+            version="1.0",
+            effective_date=None,
+            original_filename=f"{request.title}.md",
+            file_path=str(temp_file_path),
+            file_size=len(request.content),
+            file_type="md",
+            full_text=request.content,
+            parsed_data=parsed_policy,
+            metadata=metadata
+        )
+
+        logger.info(f"✅ Saved AI-generated policy {policy_id} for user {user.email}")
+
+    except Exception as e:
+        logger.error(f"❌ Error saving policy to database: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save policy: {str(e)}")
+
+    # Policy is saved successfully at this point
+    # Now try to ingest into ChromaDB (non-critical)
+    try:
+        embeddings = PolicyEmbeddings()
+
+        # Embed each section
+        for i, section in enumerate(request.sections):
+            section_id = f"{policy_id}_section_{i}"
+            section_metadata = {
+                "policy_id": policy_id,
+                "policy_title": request.title,
+                "section_number": section.get("section_number", ""),
+                "section_title": section.get("section_title", ""),
+                "ai_generated": True,
+                "policy_type": request.policy_type,
+            }
+
+            embeddings.embed_policy_section(
+                section_id=section_id,
+                section_content=section.get("section_content", ""),
+                metadata=section_metadata,
+                company_id=user.company_id
+            )
+            embeddings_count += 1
+
+        ingestion_status = "completed"
+        logger.info(f"✅ Ingested {embeddings_count} sections for policy {policy_id}")
+
+    except Exception as e:
+        logger.warning(f"⚠️  ChromaDB ingestion failed (policy still saved): {e}")
+        ingestion_status = "failed"
+
+    # Return success regardless of ingestion status
+    return SaveGeneratedPolicyResponse(
+        policy_id=policy_id,
+        title=policy_title,
+        status="active",
+        ingestion_status=ingestion_status,
+        embeddings_count=embeddings_count,
+        message=f"Policy saved {'and added to knowledge base' if ingestion_status == 'completed' else 'successfully (embeddings will be added later)'}"
+    )
+
+
 @app.get("/api/policies/{policy_id}")
 async def get_policy(
     policy_id: str,
@@ -1176,14 +1690,41 @@ async def policy_chat(
             logger.warning(f"Policy context truncated for policy {policy_id}")
 
         # Build system prompt
-        system_prompt = f"""You are an AI assistant helping users understand policy documents.
+        system_prompt = f"""You are Cirilla AI, a friendly and knowledgeable policy assistant designed to help users understand their company's policies.
+
+WHO YOU ARE:
+- Your name is Cirilla AI
+- You are a helpful AI assistant specializing in company policy documents
+- You explain policy content in clear, accessible language
+- You help users navigate and understand complex policy requirements
+
+YOUR CAPABILITIES:
+- Answer questions about policy content, requirements, and obligations
+- Explain who policies apply to and when they are relevant
+- Clarify policy terms, definitions, and procedures
+- Reference specific policy sections accurately
+- Help users find relevant information within policies
+
+YOUR CURRENT SCOPE:
 You have access to the full content of the policy titled "{policy.title}".
 
 {policy_context}
 
-Answer user questions about this policy clearly and accurately. Be helpful and conversational.
-If information is not in the policy, say so - do not make up information.
-Provide specific references to sections when applicable."""
+COMMUNICATION STYLE:
+- Be friendly, conversational, and approachable
+- Use clear, plain language to explain policy concepts
+- Provide specific section references when answering questions
+- If information isn't in the policy, be honest about it
+- Don't make up or infer information not in the policy document
+
+HOW TO HELP:
+- Answer questions directly and concisely
+- Quote relevant policy sections when helpful
+- Explain the practical implications of policy requirements
+- Guide users to the right sections for detailed information
+- Suggest related policy sections when relevant
+
+Remember: You are Cirilla AI, here to make company policies easy to understand and navigate."""
 
         # Initialize Gemini
         llm = ChatGoogleGenerativeAI(
@@ -1259,17 +1800,30 @@ async def policies_general_chat(
         # Build context from all policies (or inform if none exist)
         if not policies or len(policies) == 0:
             policy_context = "IMPORTANT: The company currently has NO policies uploaded to the system."
-            system_prompt = """You are an AI assistant helping users with their company's policy documents.
+            system_prompt = """You are Cirilla AI, a friendly policy assistant here to help users manage and understand their company's policy documents.
 
-IMPORTANT: The company currently has NO policies uploaded to the system.
+WHO YOU ARE:
+- Your name is Cirilla AI
+- You are a helpful AI assistant specializing in company policy management
+- You guide users through policy setup and organization
 
-Inform the user in a friendly and helpful way that:
-1. No policies have been uploaded yet
-2. They can upload policies by switching to "Policies View" in the policy management page
-3. Once policies are uploaded, you'll be able to help them understand and analyze the policies
-4. You can answer general questions about policy management or what kinds of policies they might want to upload
+CURRENT SITUATION:
+The company currently has NO policies uploaded to the system yet.
 
-Be conversational and helpful. Offer guidance on policy management best practices if asked."""
+HOW TO HELP:
+When users ask questions, kindly inform them that:
+1. No policies have been uploaded to the system yet
+2. They can upload policies by clicking the "Upload Policies" button
+3. Once policies are uploaded, you'll be able to help them understand and analyze the content
+4. You're happy to answer general questions about policy management and best practices
+
+COMMUNICATION STYLE:
+- Be warm, friendly, and encouraging
+- Help them get started with uploading their first policies
+- Suggest types of policies they might want to consider (e.g., privacy policy, code of conduct, HR policies)
+- Offer guidance on policy management best practices if asked
+
+Remember: You are Cirilla AI, here to make policy management simple and accessible, even before the first policy is uploaded."""
         else:
             context_parts = [
                 f"You have access to {len(policies)} company policies:",
@@ -1300,15 +1854,42 @@ Be conversational and helpful. Offer guidance on policy management best practice
                 logger.warning(f"Policies context truncated for company {user.company_id}")
 
             # Build system prompt
-            system_prompt = f"""You are an AI assistant helping users understand their company's policy documents.
+            system_prompt = f"""You are Cirilla AI, a friendly and knowledgeable policy assistant designed to help users understand and navigate their company's policy documents.
 
+WHO YOU ARE:
+- Your name is Cirilla AI
+- You are a helpful AI assistant specializing in company policy management
+- You help users understand, compare, and find information across multiple policies
+- You make complex policy information accessible and actionable
+
+YOUR CAPABILITIES:
+- Answer questions about any of the company's policies
+- Compare policies and identify relationships between them
+- Find relevant information across multiple policy documents
+- Explain policy requirements, obligations, and procedures
+- Reference specific policies and sections accurately
+- Help users understand how different policies work together
+
+YOUR CURRENT SCOPE:
 {policy_context}
 
-Answer user questions about these policies clearly and accurately. Be helpful and conversational.
-If the user asks about a specific policy, reference it by name.
-If information is not in the policies, say so - do not make up information.
-Provide specific references to policies and sections when applicable.
-When comparing policies or discussing relationships between them, be explicit about which policy you're referencing."""
+COMMUNICATION STYLE:
+- Be friendly, conversational, and approachable
+- Use clear, plain language to explain policy concepts
+- Always reference policies by name when discussing them
+- Provide specific section references when helpful
+- If information isn't in the policies, be honest about it
+- Don't make up or infer information not present in the policy documents
+
+HOW TO HELP:
+- Answer questions directly and concisely
+- When comparing policies, be explicit about which policy you're referencing
+- Quote relevant sections when it helps clarify the answer
+- Explain the practical implications of policy requirements
+- Guide users to the right policy and section for detailed information
+- Highlight connections or conflicts between related policies
+
+Remember: You are Cirilla AI, here to make navigating company policies simple, helping users find the information they need quickly and understand it clearly."""
 
         # Initialize Gemini
         llm = ChatGoogleGenerativeAI(
@@ -1622,7 +2203,8 @@ async def analyze_contract(
 
     job = analysis_jobs[job_id]
 
-    if job["status"] != "uploaded":
+    # Allow retry for failed jobs, but not for jobs that are currently analyzing or already completed
+    if job["status"] not in ["uploaded", "failed"]:
         raise HTTPException(
             status_code=400,
             detail=f"Job is already {job['status']}"
@@ -2160,36 +2742,36 @@ async def clear_policy_embeddings(
             settings=ChromaSettings(anonymized_telemetry=False)
         )
 
-        # Get collection
+        # Get company-specific collection name
+        company_collection_name = f"policies_{user.company_id}"
+
+        # Get company collection
         try:
-            collection = chroma_client.get_collection(settings.chroma_collection_name)
+            collection = chroma_client.get_collection(company_collection_name)
         except Exception:
+            logger.info(f"No collection found for company {user.company_id} (collection: {company_collection_name})")
             return {
                 "status": "success",
                 "message": "No policy embeddings found (collection doesn't exist)",
                 "cleared_count": 0
             }
 
-        # Get all documents for this company
-        results = collection.get(
-            where={"company_id": user.company_id},
-            include=["metadatas"]
-        )
+        # Get all documents in the company collection
+        count = collection.count()
 
-        if not results["ids"]:
+        if count == 0:
             return {
                 "status": "success",
                 "message": "No policy embeddings found for your company",
                 "cleared_count": 0
             }
 
-        count = len(results["ids"])
-        logger.info(f"Found {count} policy chunks for company {user.company_id}")
+        logger.info(f"Found {count} policy chunks in company collection {company_collection_name}")
 
-        # Delete by IDs
-        collection.delete(ids=results["ids"])
+        # Delete the entire collection (cleanest way to clear all data)
+        chroma_client.delete_collection(company_collection_name)
 
-        logger.info(f"Cleared {count} policy embeddings for company {user.company_id}")
+        logger.info(f"Deleted collection {company_collection_name} with {count} embeddings for company {user.company_id}")
 
         return {
             "status": "success",

@@ -24,6 +24,7 @@ class User(Base):
     jobs = relationship("AnalysisJob", back_populates="user", cascade="all, delete-orphan")
     initiated_negotiations = relationship("Negotiation", foreign_keys="[Negotiation.initiator_user_id]", back_populates="initiator", cascade="all, delete-orphan")
     received_negotiations = relationship("Negotiation", foreign_keys="[Negotiation.receiver_user_id]", back_populates="receiver", cascade="all, delete-orphan")
+    password_reset_tokens = relationship("PasswordResetToken", back_populates="user", cascade="all, delete-orphan")
 
     def to_dict(self):
         """Convert user to dictionary (without password)."""
@@ -570,6 +571,53 @@ class PolicyVersion(Base):
         }
 
 
+# ===== Password Reset Models =====
+
+class PasswordResetToken(Base):
+    """Password reset token model for secure password recovery."""
+
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(String, primary_key=True)
+    token_hash = Column(String, nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    used_at = Column(DateTime, nullable=True)
+    request_count = Column(Integer, default=1, nullable=False)
+    window_start = Column(DateTime, default=datetime.now, nullable=False)
+
+    # Relationship
+    user = relationship("User", back_populates="password_reset_tokens")
+
+    def is_valid(self) -> bool:
+        """Check if token is still valid (not expired and not used)."""
+        return datetime.now() < self.expires_at and self.used_at is None
+
+    def is_expired(self) -> bool:
+        """Check if token has expired."""
+        return datetime.now() >= self.expires_at
+
+    def is_used(self) -> bool:
+        """Check if token has been used."""
+        return self.used_at is not None
+
+    def mark_as_used(self):
+        """Mark token as used."""
+        self.used_at = datetime.now()
+
+    def to_dict(self):
+        """Convert token to dictionary (without token_hash for security)."""
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "created_at": self.created_at.isoformat(),
+            "expires_at": self.expires_at.isoformat(),
+            "used_at": self.used_at.isoformat() if self.used_at else None,
+            "is_valid": self.is_valid()
+        }
+
+
 # Create indexes for common queries
 Index('idx_sessions_user_expires', Session.user_id, Session.expires_at)
 Index('idx_jobs_user_created', AnalysisJob.user_id, AnalysisJob.created_at.desc())
@@ -589,3 +637,8 @@ Index('idx_policies_status_created', Policy.status, Policy.created_at.desc())
 Index('idx_policies_company_policy_number', Policy.company_id, Policy.policy_number)
 Index('idx_policy_sections_policy_order', PolicySection.policy_id, PolicySection.section_order)
 Index('idx_policy_versions_policy_version', PolicyVersion.policy_id, PolicyVersion.version_number.desc())
+
+# Password reset token indexes
+Index('idx_password_reset_tokens_hash', PasswordResetToken.token_hash)
+Index('idx_password_reset_tokens_user_expires', PasswordResetToken.user_id, PasswordResetToken.expires_at)
+Index('idx_password_reset_tokens_expires', PasswordResetToken.expires_at)

@@ -65,7 +65,17 @@ export default function PoliciesPage() {
 
   useEffect(() => {
     loadPolicies();
+    // Load saved view from localStorage
+    const savedView = localStorage.getItem("policies-view");
+    if (savedView === "policies" || savedView === "chat") {
+      setView(savedView);
+    }
   }, []);
+
+  // Save view to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem("policies-view", view);
+  }, [view]);
 
   return (
     <div className="h-full p-8">

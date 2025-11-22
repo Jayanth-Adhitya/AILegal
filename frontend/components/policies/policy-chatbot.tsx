@@ -1,13 +1,19 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, AlertCircle, Sparkles } from "lucide-react";
+import { Send, Loader2, AlertCircle, Sparkles, MessageSquare, PenTool } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Policy } from "@/lib/types";
 import { policyApi } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
+import { DraftPolicyProvider } from "@/contexts/DraftPolicyContext";
+import { PolicyTypeSelector } from "./policy-type-selector";
+import { Questionnaire } from "./questionnaire";
+import { AdditionalNotesStep } from "./additional-notes-step";
+import { PolicyPreview } from "./policy-preview";
+import { useDraftPolicy } from "@/contexts/DraftPolicyContext";
 
 interface PolicyChatbotProps {
   policy?: Policy;  // Optional - if not provided, chat about all policies
@@ -20,11 +26,73 @@ interface Message {
   timestamp: Date;
 }
 
-export function PolicyChatbot({ policy }: PolicyChatbotProps) {
+function DraftingWizardContent() {
+  const { currentStep, error, reset } = useDraftPolicy();
+
+  // Success state
+  if (currentStep === "saved") {
+    return (
+      <div className="max-w-2xl mx-auto py-8">
+        <Card className="border-2 border-green-200/50 bg-green-50/30">
+          <CardContent className="pt-12 pb-12 text-center">
+            <div className="flex justify-center mb-6">
+              <div className="p-4 bg-gradient-to-r from-green-500 to-green-600 rounded-full">
+                <Sparkles className="h-12 w-12 text-white" />
+              </div>
+            </div>
+            <h2 className="text-3xl font-bold text-gray-900 mb-3">Policy Saved Successfully!</h2>
+            <p className="text-lg text-gray-600 mb-6">
+              Your policy has been saved and is now available in your policy library.
+            </p>
+            <Button
+              onClick={reset}
+              className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-gray-900 hover:from-yellow-500 hover:to-yellow-600 shadow-dual-sm"
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              Draft Another Policy
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="max-w-3xl mx-auto">
+        <Alert variant="destructive" className="mb-6">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+        <Button onClick={reset} variant="outline">
+          Start Over
+        </Button>
+      </div>
+    );
+  }
+
+  // Render appropriate step
+  switch (currentStep) {
+    case "select-type":
+      return <PolicyTypeSelector />;
+    case "questions":
+      return <Questionnaire />;
+    case "notes":
+      return <AdditionalNotesStep />;
+    case "preview":
+      return <PolicyPreview />;
+    default:
+      return <PolicyTypeSelector />;
+  }
+}
+
+function PolicyChatbotInner({ policy }: PolicyChatbotProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showWizard, setShowWizard] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -114,15 +182,31 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
     inputRef.current?.focus();
   };
 
+
   const isInputValid = input.trim().length > 0 && input.length <= 5000;
 
   return (
-    <Card className="flex flex-col">
-      <CardHeader className="border-b">
-        <CardTitle>
-          {policy ? `${policy.title} - Cirilla AI` : "Cirilla AI - Policy Assistant"}
-        </CardTitle>
-      </CardHeader>
+    <div className="space-y-6">
+      {/* Conditional Rendering - Show Wizard or Chat */}
+      {showWizard ? (
+        <div className="space-y-4">
+          <Button
+            onClick={() => setShowWizard(false)}
+            variant="outline"
+            className="mb-4"
+          >
+            <MessageSquare className="mr-2 h-4 w-4" />
+            Back to Chat
+          </Button>
+          <DraftingWizardContent />
+        </div>
+      ) : (
+        <Card className="flex flex-col">
+          <CardHeader className="border-b">
+            <CardTitle>
+              {policy ? `${policy.title} - Cirilla AI` : "Cirilla AI - Policy Assistant"}
+            </CardTitle>
+          </CardHeader>
 
       <CardContent className="p-6 overflow-hidden">
         {/* Messages Area */}
@@ -171,6 +255,16 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
                         {question}
                       </button>
                     ))}
+                    {/* Draft Policy Button */}
+                    {!policy && (
+                      <button
+                        onClick={() => setShowWizard(true)}
+                        className="w-full text-left px-4 py-3 text-sm bg-gradient-to-r from-yellow-400 to-yellow-500 text-gray-900 hover:from-yellow-500 hover:to-yellow-600 border border-yellow-300 rounded-lg transition-colors font-medium flex items-center gap-2"
+                      >
+                        <Sparkles className="h-4 w-4" />
+                        Draft a New Policy
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -264,6 +358,16 @@ export function PolicyChatbot({ policy }: PolicyChatbotProps) {
             </Button>
           </div>
         </div>
-    </Card>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+export function PolicyChatbot(props: PolicyChatbotProps) {
+  return (
+    <DraftPolicyProvider>
+      <PolicyChatbotInner {...props} />
+    </DraftPolicyProvider>
   );
 }
