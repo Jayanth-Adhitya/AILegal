@@ -22,16 +22,24 @@ SAFETY_SETTINGS = {
 class SmartPolicyRetriever:
     """Intelligently retrieve all relevant policies for a contract in one go."""
 
-    def __init__(self):
-        """Initialize smart retriever."""
-        self.retriever = PolicyRetriever()
+    def __init__(self, company_id: str = None, region_code: str = None):
+        """
+        Initialize smart retriever.
+
+        Args:
+            company_id: Optional company ID for company-specific policies
+            region_code: Optional region code for regional policies
+        """
+        self.retriever = PolicyRetriever(company_id=company_id)
+        self.company_id = company_id
+        self.region_code = region_code
         self.llm = ChatGoogleGenerativeAI(
             model=settings.gemini_model,
             google_api_key=settings.google_api_key,
             temperature=0.1,
             safety_settings=SAFETY_SETTINGS
         )
-        logger.info("Initialized SmartPolicyRetriever")
+        logger.info(f"Initialized SmartPolicyRetriever{' for company: ' + company_id if company_id else ''}{' region: ' + region_code if region_code else ''}")
 
     def detect_policy_types_from_contract(
         self,

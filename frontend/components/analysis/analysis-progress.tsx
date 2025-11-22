@@ -70,6 +70,8 @@ export function AnalysisProgress({ jobId, contractName }: AnalysisProgressProps)
 
         if (jobStatus.status === "completed") {
           clearInterval(pollInterval);
+          // Clear the saved analysis state since we're done
+          sessionStorage.removeItem("analysisState");
           // Wait a moment then redirect to results
           setTimeout(() => {
             router.push(`/results/${jobId}`);

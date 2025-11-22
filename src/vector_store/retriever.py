@@ -89,12 +89,28 @@ class PolicyRetriever:
                 "include": ["documents", "metadatas", "distances"]
             }
 
-            # Add metadata filter if provided
-            where_clause = filter_metadata.copy() if filter_metadata else {}
+            # Build where clause with proper ChromaDB syntax
+            where_clause = None
 
-            # Always filter by company_id if set
-            if self.company_id:
-                where_clause["company_id"] = self.company_id
+            # If we have both filter_metadata and company_id, use $and
+            if filter_metadata and self.company_id:
+                conditions = []
+                for key, value in filter_metadata.items():
+                    conditions.append({key: value})
+                conditions.append({"company_id": self.company_id})
+                where_clause = {"$and": conditions}
+            # If only filter_metadata
+            elif filter_metadata:
+                # Single filter
+                if len(filter_metadata) == 1:
+                    where_clause = filter_metadata
+                # Multiple filters
+                else:
+                    conditions = [{k: v} for k, v in filter_metadata.items()]
+                    where_clause = {"$and": conditions}
+            # If only company_id
+            elif self.company_id:
+                where_clause = {"company_id": self.company_id}
 
             if where_clause:
                 query_params["where"] = where_clause

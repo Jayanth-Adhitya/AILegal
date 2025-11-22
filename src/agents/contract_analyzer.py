@@ -53,10 +53,10 @@ class ContractAnalyzer:
         self.batch_mode = batch_mode if batch_mode is not None else settings.batch_mode
 
         if self.batch_mode:
-            self.batch_analyzer = BatchContractAnalyzer()
-            logger.info(f"Initialized ContractAnalyzer (BATCH MODE){' for company: ' + company_id if company_id else ''}")
+            self.batch_analyzer = BatchContractAnalyzer(company_id=company_id, region_code=region_code)
+            logger.info(f"Initialized ContractAnalyzer (BATCH MODE){' for company: ' + company_id if company_id else ''}{' region: ' + region_code if region_code else ''}")
         else:
-            logger.info(f"Initialized ContractAnalyzer (SINGLE-CLAUSE MODE){' for company: ' + company_id if company_id else ''}")
+            logger.info(f"Initialized ContractAnalyzer (SINGLE-CLAUSE MODE){' for company: ' + company_id if company_id else ''}{' region: ' + region_code if region_code else ''}")
 
     def analyze_contract(
         self,

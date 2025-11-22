@@ -113,7 +113,7 @@ export function ContractUpload({ onUploadSuccess }: ContractUploadProps) {
             </div>
 
             <Button onClick={handleUpload} disabled={uploading} className="w-full">
-              {uploading ? "Uploading..." : "Upload and Continue"}
+              {uploading ? "Uploading and Starting Analysis..." : "Upload and Analyze Contract"}
             </Button>
           </div>
         )}

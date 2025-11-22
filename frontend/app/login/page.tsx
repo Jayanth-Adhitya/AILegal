@@ -20,8 +20,17 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   const redirect = searchParams.get('redirect') || '/dashboard'
+  const resetSuccess = searchParams.get('reset')
+
+  // Show success message if redirected after password reset
+  useEffect(() => {
+    if (resetSuccess === 'success') {
+      setSuccessMessage('Password reset successful! Please log in with your new password.')
+    }
+  }, [resetSuccess])
 
   // Redirect if already logged in
   useEffect(() => {
@@ -79,6 +88,12 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit}>
             <CardContent className="space-y-4">
+              {successMessage && (
+                <Alert className="border-green-200 bg-green-50/50">
+                  <AlertDescription className="text-green-800">{successMessage}</AlertDescription>
+                </Alert>
+              )}
+
               {error && (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
@@ -100,7 +115,19 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      console.log('Navigating to forgot password')
+                      router.push('/forgot-password')
+                    }}
+                    className="text-sm text-yellow-700 hover:text-yellow-800 hover:underline font-medium transition-colors relative z-10 cursor-pointer bg-transparent border-none"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
                 <Input
                   id="password"
                   type="password"

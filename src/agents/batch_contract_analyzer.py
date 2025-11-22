@@ -23,8 +23,14 @@ SAFETY_SETTINGS = {
 class BatchContractAnalyzer:
     """Analyze entire contract in a single batch API call."""
 
-    def __init__(self):
-        """Initialize batch analyzer."""
+    def __init__(self, company_id: str = None, region_code: str = None):
+        """
+        Initialize batch analyzer.
+
+        Args:
+            company_id: Optional company ID for company-specific policies
+            region_code: Optional region code for regional policies
+        """
         # Use configured token limit for batch analysis (Gemini 2.0 Flash supports up to 65k)
         max_tokens = settings.max_output_tokens
 
@@ -39,12 +45,14 @@ class BatchContractAnalyzer:
         logger.info(f"BatchAnalyzer initialized with max_output_tokens={max_tokens}")
         logger.info(f"Safety settings: BLOCK_ONLY_HIGH for all categories")
 
-        self.policy_retriever = SmartPolicyRetriever()
+        self.policy_retriever = SmartPolicyRetriever(company_id=company_id, region_code=region_code)
+        self.company_id = company_id
+        self.region_code = region_code
         self.rate_limiter = RateLimitHandler(
             max_retries=getattr(settings, 'rate_limit_retry_attempts', 3)
         )
 
-        logger.info("Initialized BatchContractAnalyzer")
+        logger.info(f"Initialized BatchContractAnalyzer{' for company: ' + company_id if company_id else ''}{' region: ' + region_code if region_code else ''}")
 
     def analyze_contract_batch(
         self,

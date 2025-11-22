@@ -1,9 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import { FileCheck, AlertCircle, ArrowRight, Globe, CheckCircle } from "lucide-react";
 import { ContractUpload } from "@/components/analysis/contract-upload";
 import { AnalysisProgress } from "@/components/analysis/analysis-progress";
@@ -28,6 +26,51 @@ export default function AnalyzePage() {
   const [location, setLocation] = useState<LocationData | null>(null);
   const [loadingLocation, setLoadingLocation] = useState(true);
 
+  // Restore state from sessionStorage on mount
+  useEffect(() => {
+    const savedState = sessionStorage.getItem("analysisState");
+    if (savedState) {
+      try {
+        const { step: savedStep, contractName: savedName, jobId: savedJobId } = JSON.parse(savedState);
+        if (savedJobId) {
+          // Check if the job is completed or failed - if so, clear it
+          contractApi.getJobStatus(savedJobId).then((jobStatus) => {
+            if (jobStatus.status === "completed") {
+              // Job is completed, clear the state and don't restore
+              sessionStorage.removeItem("analysisState");
+            } else if (jobStatus.status === "failed") {
+              // Job failed, restore it so user can retry
+              setStep(savedStep || "upload");
+              setContractName(savedName || "");
+              setJobId(savedJobId);
+            } else {
+              // Job is still processing, restore the state
+              setStep(savedStep || "upload");
+              setContractName(savedName || "");
+              setJobId(savedJobId);
+            }
+          }).catch((err) => {
+            console.error("Failed to check job status:", err);
+            // If we can't check status, just clear it to be safe
+            sessionStorage.removeItem("analysisState");
+          });
+        }
+      } catch (err) {
+        console.error("Failed to restore analysis state:", err);
+      }
+    }
+  }, []);
+
+  // Persist state to sessionStorage whenever it changes
+  useEffect(() => {
+    if (jobId) {
+      sessionStorage.setItem(
+        "analysisState",
+        JSON.stringify({ step, contractName, jobId })
+      );
+    }
+  }, [step, contractName, jobId]);
+
   // Fetch user location on mount
   useEffect(() => {
     fetchLocation();
@@ -47,31 +90,27 @@ export default function AnalyzePage() {
     }
   };
 
-  const handleUploadSuccess = (uploadJobId: string, fileName: string) => {
+  const handleUploadSuccess = async (uploadJobId: string, fileName: string) => {
     setJobId(uploadJobId);
     setContractName(fileName);
     setError(null);
+
+    // Automatically start analysis after upload
+    await startAnalysis(uploadJobId);
   };
 
-  const handleStartAnalysis = async () => {
+  const startAnalysis = async (analysisJobId: string) => {
     setStarting(true);
     setError(null);
 
     try {
-      const response = await contractApi.analyzeContract(jobId);
+      await contractApi.analyzeContract(analysisJobId);
       setStep("analyzing");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start analysis");
     } finally {
       setStarting(false);
     }
-  };
-
-  const handleReset = () => {
-    setStep("upload");
-    setContractName("");
-    setJobId("");
-    setError(null);
   };
 
   return (
@@ -124,7 +163,7 @@ export default function AnalyzePage() {
             >
               {step === "analyzing" ? "✓" : "1"}
             </div>
-            <span className="text-sm font-medium">Upload Contract</span>
+            <span className="text-sm font-medium">Upload & Analyze</span>
           </div>
           <ArrowRight className="h-4 w-4 text-gray-400" />
           <div className="flex items-center gap-2">
@@ -137,7 +176,7 @@ export default function AnalyzePage() {
             >
               2
             </div>
-            <span className="text-sm font-medium">Analyze</span>
+            <span className="text-sm font-medium">View Results</span>
           </div>
         </div>
 
@@ -146,7 +185,7 @@ export default function AnalyzePage() {
           <FileCheck className="h-4 w-4" />
           <AlertTitle>How Contract Analysis Works</AlertTitle>
           <AlertDescription>
-            Upload your contract (DOCX format only). Our AI will analyze each clause against your
+            Upload your contract (DOCX format only) and the analysis will start automatically. Our AI will analyze each clause against your
             company policies, identify compliance issues, and provide recommendations with tracked
             changes. The analysis typically takes 2-5 minutes depending on contract length.
           </AlertDescription>
@@ -198,35 +237,6 @@ export default function AnalyzePage() {
         {step === "upload" ? (
           <div className="space-y-6">
             <ContractUpload onUploadSuccess={handleUploadSuccess} />
-
-            {jobId && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Ready to Analyze</CardTitle>
-                  <CardDescription>
-                    Contract uploaded successfully. Click below to start the analysis.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex gap-4">
-                    <Button
-                      onClick={handleStartAnalysis}
-                      disabled={starting}
-                      className="flex-1"
-                    >
-                      {starting ? "Starting Analysis..." : "Start Analysis"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={handleReset}
-                      disabled={starting}
-                    >
-                      Upload Different File
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </div>
         ) : (
           <AnalysisProgress jobId={jobId} contractName={contractName} />

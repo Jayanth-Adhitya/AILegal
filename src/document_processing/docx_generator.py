@@ -3,11 +3,17 @@
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 from docx import Document
 from docx.shared import RGBColor, Pt
 from docx.enum.text import WD_COLOR_INDEX
+from lxml import etree
 
 logger = logging.getLogger(__name__)
+
+# Word Processing XML namespace for OOXML manipulation
+WORD_NAMESPACE = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+W = '{' + WORD_NAMESPACE + '}'
 
 
 class DocxGenerator:
@@ -26,6 +32,159 @@ class DocxGenerator:
         else:
             self.document = Document()
             logger.info("Created new blank document")
+
+        # Initialize revision counter for track changes
+        self._revision_id = 1
+
+    def _generate_revision_id(self) -> str:
+        """
+        Generate a unique sequential revision ID for track changes.
+
+        Returns:
+            String representation of the revision ID
+        """
+        rev_id = str(self._revision_id)
+        self._revision_id += 1
+        return rev_id
+
+    def _generate_timestamp(self) -> str:
+        """
+        Generate an ISO 8601 formatted timestamp for track changes.
+
+        Returns:
+            ISO 8601 formatted timestamp string
+        """
+        return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    def _add_track_change_deletion(self, paragraph, text: str) -> bool:
+        """
+        Add a tracked deletion to a paragraph using OOXML markup.
+
+        Creates a <w:del> element containing the text to be deleted,
+        which appears as strikethrough in Word's Review pane.
+
+        Args:
+            paragraph: python-docx Paragraph object
+            text: Text to mark as deleted
+
+        Returns:
+            True if successful
+        """
+        try:
+            # Access paragraph XML element
+            p_element = paragraph._element
+
+            # Create deletion element with revision metadata
+            del_elem = etree.Element(
+                f'{W}del',
+                attrib={
+                    f'{W}id': self._generate_revision_id(),
+                    f'{W}author': 'AI Legal Assistant',
+                    f'{W}date': self._generate_timestamp()
+                }
+            )
+
+            # Create run element for deleted text
+            run_elem = etree.SubElement(del_elem, f'{W}r')
+
+            # Add run properties to preserve formatting
+            rPr = etree.SubElement(run_elem, f'{W}rPr')
+
+            # Add deleted text element
+            del_text_elem = etree.SubElement(run_elem, f'{W}delText')
+            del_text_elem.text = text
+
+            # Append deletion to paragraph
+            p_element.append(del_elem)
+
+            logger.debug(f"Added track change deletion: {text[:50]}...")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error adding track change deletion: {e}")
+            return False
+
+    def _add_track_change_insertion(self, paragraph, text: str) -> bool:
+        """
+        Add a tracked insertion to a paragraph using OOXML markup.
+
+        Creates a <w:ins> element containing the new text,
+        which appears as underlined in Word's Review pane.
+
+        Args:
+            paragraph: python-docx Paragraph object
+            text: Text to mark as inserted
+
+        Returns:
+            True if successful
+        """
+        try:
+            # Access paragraph XML element
+            p_element = paragraph._element
+
+            # Create insertion element with revision metadata
+            ins_elem = etree.Element(
+                f'{W}ins',
+                attrib={
+                    f'{W}id': self._generate_revision_id(),
+                    f'{W}author': 'AI Legal Assistant',
+                    f'{W}date': self._generate_timestamp()
+                }
+            )
+
+            # Create run element for inserted text
+            run_elem = etree.SubElement(ins_elem, f'{W}r')
+
+            # Add run properties to preserve formatting
+            rPr = etree.SubElement(run_elem, f'{W}rPr')
+
+            # Add text element
+            text_elem = etree.SubElement(run_elem, f'{W}t')
+            text_elem.text = text
+
+            # Preserve whitespace
+            text_elem.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+
+            # Append insertion to paragraph
+            p_element.append(ins_elem)
+
+            logger.debug(f"Added track change insertion: {text[:50]}...")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error adding track change insertion: {e}")
+            return False
+
+    def _enable_track_changes(self) -> bool:
+        """
+        Enable track changes mode in the document settings.
+
+        This ensures the document opens in Word with the Review pane active
+        and all changes visible.
+
+        Returns:
+            True if successful
+        """
+        try:
+            # Access document settings
+            settings = self.document.settings.element
+
+            # Check if trackRevisions setting already exists
+            track_rev = settings.find(f'{W}trackRevisions')
+
+            if track_rev is None:
+                # Create trackRevisions element
+                track_rev = etree.SubElement(settings, f'{W}trackRevisions')
+
+            # Enable track changes
+            track_rev.set(f'{W}val', 'true')
+
+            logger.info("Enabled track changes mode in document settings")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error enabling track changes: {e}")
+            return False
 
     def add_comment_to_paragraph(
         self,
@@ -123,48 +282,50 @@ class DocxGenerator:
         explanation: str
     ) -> bool:
         """
-        Add a redline suggestion by showing strikethrough and new text.
+        Add a redline suggestion using native Word track changes.
+
+        Creates tracked deletion for original text and tracked insertion
+        for suggested text, which appear in Word's Review pane and can
+        be accepted or rejected.
 
         Args:
             paragraph_index: Index of the paragraph
-            original_text: Original clause text
-            suggested_text: Suggested replacement text
-            explanation: Explanation for the change
+            original_text: Original clause text to mark as deleted
+            suggested_text: Suggested replacement text to mark as inserted
+            explanation: Explanation for the change (added as comment)
 
         Returns:
             True if successful
         """
         try:
             if paragraph_index >= len(self.document.paragraphs):
+                logger.error(f"Paragraph index {paragraph_index} out of range")
                 return False
 
             paragraph = self.document.paragraphs[paragraph_index]
 
-            # Clear existing runs
-            for run in paragraph.runs:
-                run.text = ""
+            # Remove all existing runs to avoid duplication
+            # We must remove the run elements from the paragraph XML, not just clear text
+            p_element = paragraph._element
+            for run in list(paragraph.runs):  # Create a copy of the list to iterate safely
+                p_element.remove(run._element)
 
-            # Add strikethrough for original text
-            deleted_run = paragraph.add_run(original_text)
-            deleted_run.font.strike = True
-            deleted_run.font.color.rgb = RGBColor(255, 0, 0)  # Red
+            # Add tracked deletion for original text
+            self._add_track_change_deletion(paragraph, original_text)
 
-            # Add space
-            paragraph.add_run(" ")
+            # Add tracked insertion for suggested text
+            self._add_track_change_insertion(paragraph, suggested_text)
 
-            # Add suggested text
-            suggested_run = paragraph.add_run(suggested_text)
-            suggested_run.font.color.rgb = RGBColor(0, 128, 0)  # Green
-            suggested_run.font.bold = True
+            # Add explanation as inline comment (for now)
+            # TODO: Future enhancement - use native Word comments
+            if explanation:
+                self.add_inline_comment(paragraph_index, explanation, highlight_text=False)
 
-            # Add explanation as comment
-            self.add_inline_comment(paragraph_index, explanation, highlight_text=False)
-
-            logger.debug(f"Added redline to paragraph {paragraph_index}")
+            logger.debug(f"Added track changes to paragraph {paragraph_index}")
             return True
 
         except Exception as e:
-            logger.error(f"Error adding redline: {e}")
+            logger.error(f"Error adding track change redline: {e}")
             return False
 
     def create_review_document(
@@ -173,7 +334,10 @@ class DocxGenerator:
         output_path: str
     ) -> bool:
         """
-        Create a complete review document with all comments and redlines.
+        Create a complete review document with native track changes.
+
+        Generates a Word document with tracked deletions and insertions
+        that can be reviewed and accepted/rejected in Word's Review pane.
 
         Args:
             analysis_results: List of clause analysis results
@@ -183,6 +347,9 @@ class DocxGenerator:
             True if document created successfully
         """
         try:
+            # Enable track changes mode in document settings
+            self._enable_track_changes()
+
             for result in analysis_results:
                 paragraph_index = result.get("paragraph_index")
                 compliant = result.get("compliant", True)
@@ -204,7 +371,7 @@ class DocxGenerator:
 
             # Save the document
             self.document.save(output_path)
-            logger.info(f"Saved review document to: {output_path}")
+            logger.info(f"Saved review document with track changes to: {output_path}")
             return True
 
         except Exception as e:
@@ -257,7 +424,13 @@ class DocxGenerator:
 
         # Add title
         title = self.document.add_paragraph("AI Legal Assistant - Contract Review Summary")
-        title.style = "Heading 1"
+        try:
+            title.style = "Heading 1"
+        except KeyError:
+            # If Heading 1 style doesn't exist, format manually
+            title_run = title.runs[0] if title.runs else title.add_run()
+            title_run.font.size = Pt(16)
+            title_run.font.bold = True
         self.document.paragraphs.insert(0, title)
 
         # Add summary content

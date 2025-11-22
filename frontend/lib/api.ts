@@ -179,6 +179,97 @@ export const policyApi = {
       handleApiError(error);
     }
   },
+
+  // Get available policy types for AI generation
+  async getPolicyTypes(): Promise<{ status: string; policy_types: Record<string, any[]>; total_count: number }> {
+    try {
+      const response = await api.get<{ status: string; policy_types: Record<string, any[]>; total_count: number }>(
+        `/api/policies/types`
+      );
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Generate questions for a policy type
+  async generateQuestions(
+    policyType: string,
+    userContext?: Record<string, any>
+  ): Promise<{ questions: any[]; estimated_time: string }> {
+    try {
+      const response = await api.post<{ questions: any[]; estimated_time: string }>(
+        `/api/policies/generate-questions`,
+        {
+          policy_type: policyType,
+          user_context: userContext,
+        }
+      );
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Generate a policy document from answers
+  async generatePolicy(
+    policyType: string,
+    answers: Array<{ question_id: string; question_text: string; value: string | string[] }>,
+    additionalNotes?: string
+  ): Promise<{
+    title: string;
+    content: string;
+    sections: any[];
+    metadata: Record<string, any>;
+    version: string;
+    generation_time_seconds?: number;
+  }> {
+    try {
+      const response = await api.post(
+        `/api/policies/generate-policy`,
+        {
+          policy_type: policyType,
+          answers,
+          additional_notes: additionalNotes,
+        }
+      );
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // Save a generated policy to database
+  async saveGeneratedPolicy(
+    title: string,
+    content: string,
+    sections: any[],
+    metadata: Record<string, any>,
+    policyType: string
+  ): Promise<{
+    policy_id: string;
+    title: string;
+    status: string;
+    ingestion_status: string;
+    embeddings_count: number;
+    message: string;
+  }> {
+    try {
+      const response = await api.post(
+        `/api/policies/save-generated`,
+        {
+          title,
+          content,
+          sections,
+          metadata,
+          policy_type: policyType,
+        }
+      );
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
 };
 
 // Contract Analysis API
