@@ -8,20 +8,20 @@
   <!-- Basic Add-in Information -->
   <Id>a1b2c3d4-e5f6-7890-abcd-ef1234567890</Id>
   <Version>1.0.0.0</Version>
-  <ProviderName>JaziriX Legal Tech</ProviderName>
+  <ProviderName>Cirilla AI</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="AI Legal Assistant"/>
+  <DisplayName DefaultValue="Cirilla - AI Legal Assistant"/>
   <Description DefaultValue="AI-powered contract analysis with compliance review, redlining, and clause suggestions directly in Word."/>
 
   <!-- Icon URLs -->
-  <IconUrl DefaultValue="https://localhost:3001/assets/icon-32.png"/>
-  <HighResolutionIconUrl DefaultValue="https://localhost:3001/assets/icon-64.png"/>
-  <SupportUrl DefaultValue="https://github.com/JaziriX/legal-agent"/>
+  <IconUrl DefaultValue="https://word.contract.cirilla.ai/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://word.contract.cirilla.ai/assets/icon-64.png"/>
+  <SupportUrl DefaultValue="https://contract.cirilla.ai"/>
 
   <!-- Domains that can be accessed -->
   <AppDomains>
-    <AppDomain>https://localhost:3001</AppDomain>
-    <AppDomain>https://localhost:8000</AppDomain>
+    <AppDomain>https://word.contract.cirilla.ai</AppDomain>
+    <AppDomain>https://contract.cirilla.ai</AppDomain>
   </AppDomains>
 
   <!-- Hosts this add-in supports -->
@@ -38,7 +38,7 @@
 
   <!-- Default Settings -->
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://localhost:3001/taskpane.html"/>
+    <SourceLocation DefaultValue="https://word.contract.cirilla.ai/taskpane.html"/>
   </DefaultSettings>
 
   <!-- Permissions -->
@@ -94,23 +94,23 @@
     <!-- Resources -->
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16x16" DefaultValue="https://localhost:3001/assets/icon-16.png"/>
-        <bt:Image id="Icon.32x32" DefaultValue="https://localhost:3001/assets/icon-32.png"/>
-        <bt:Image id="Icon.80x80" DefaultValue="https://localhost:3001/assets/icon-80.png"/>
+        <bt:Image id="Icon.16x16" DefaultValue="https://word.contract.cirilla.ai/assets/icon-16.png"/>
+        <bt:Image id="Icon.32x32" DefaultValue="https://word.contract.cirilla.ai/assets/icon-32.png"/>
+        <bt:Image id="Icon.80x80" DefaultValue="https://word.contract.cirilla.ai/assets/icon-80.png"/>
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="Commands.Url" DefaultValue="https://localhost:3001/commands.html"/>
-        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3001/taskpane.html"/>
-        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/JaziriX/legal-agent"/>
+        <bt:Url id="Commands.Url" DefaultValue="https://word.contract.cirilla.ai/commands.html"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://word.contract.cirilla.ai/taskpane.html"/>
+        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://contract.cirilla.ai"/>
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GetStarted.Title" DefaultValue="AI Legal Assistant is ready!"/>
-        <bt:String id="CommandsGroup.Label" DefaultValue="Legal Assistant"/>
+        <bt:String id="GetStarted.Title" DefaultValue="Cirilla AI is ready!"/>
+        <bt:String id="CommandsGroup.Label" DefaultValue="Cirilla"/>
         <bt:String id="TaskpaneButton.Label" DefaultValue="Analyze Contract"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Click the 'Analyze Contract' button to open the AI Legal Assistant panel. You can analyze contracts for compliance, add redlines, and get AI-powered clause suggestions."/>
-        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open the AI Legal Assistant panel to analyze your contract for compliance issues and get AI-powered suggestions."/>
+        <bt:String id="GetStarted.Description" DefaultValue="Click the 'Analyze Contract' button to open Cirilla AI. You can analyze contracts for compliance, add redlines, and get AI-powered clause suggestions."/>
+        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open Cirilla AI to analyze your contract for compliance issues and get AI-powered suggestions."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

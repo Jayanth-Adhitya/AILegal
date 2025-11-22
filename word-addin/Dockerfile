@@ -36,9 +36,12 @@ COPY --from=builder --chown=addinuser:nodejs /app/manifest.xml ./manifest.xml
 
 USER addinuser
 
+# Set default port (can be overridden by environment variable)
+ENV PORT=3002
+
 # Expose port
-EXPOSE 3001
+EXPOSE 3002
 
 # Note: For production, HTTPS is required for Office Add-ins
 # This serves the static files. In production, you'll need a reverse proxy with HTTPS
-CMD ["serve", "-s", "dist", "-l", "3001"]
+CMD sh -c "serve -s dist -l ${PORT}"

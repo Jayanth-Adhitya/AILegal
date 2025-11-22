@@ -9,7 +9,7 @@ import {
   AnalyzeTextRequest,
 } from '../types/analysis';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'https://word.contract.cirilla.ai';
 
 class BackendAPIClient {
   private sessionToken: string | null = null;

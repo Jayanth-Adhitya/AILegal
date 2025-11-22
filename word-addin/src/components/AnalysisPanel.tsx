@@ -21,6 +21,7 @@ import { wordAPI } from '../services/word-api';
 import { backendAPI } from '../services/backend-api';
 import ClauseCard from './ClauseCard';
 import SummaryStats from './SummaryStats';
+import { glassStyles } from '../theme';
 
 const useStyles = makeStyles({
   container: {
@@ -30,6 +31,20 @@ const useStyles = makeStyles({
   },
   analyzeButton: {
     width: '100%',
+    background: 'linear-gradient(to bottom, #FCD34D, #FBBF24)',
+    border: 'none',
+    color: '#78350F',
+    fontWeight: tokens.fontWeightSemibold,
+    fontSize: tokens.fontSizeBase400,
+    padding: `${tokens.spacingVerticalM} ${tokens.spacingHorizontalL}`,
+    boxShadow: 'inset 0 1px 0 rgba(254, 243, 199, 0.5), ' + glassStyles.shadowMd,
+    '&:hover': {
+      background: 'linear-gradient(to bottom, #FDE68A, #FCD34D)',
+      boxShadow: 'inset 0 1px 0 rgba(254, 243, 199, 0.5), ' + glassStyles.shadowLg,
+    },
+    '&:disabled': {
+      opacity: 0.6,
+    },
   },
   resultsContainer: {
     display: 'flex',
@@ -41,16 +56,44 @@ const useStyles = makeStyles({
     alignItems: 'center',
     gap: tokens.spacingHorizontalS,
     marginBottom: tokens.spacingVerticalS,
+    color: '#78350F',
+  },
+  readyCard: {
+    background: glassStyles.cardBackground,
+    backdropFilter: `blur(${glassStyles.glassBlur})`,
+    WebkitBackdropFilter: `blur(${glassStyles.glassBlur})`,
+    boxShadow: glassStyles.shadowMd,
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+  },
+  readyCardTitle: {
+    color: '#78350F',
+  },
+  readyCardDescription: {
+    color: '#92400E',
   },
   noResults: {
     textAlign: 'center',
     padding: tokens.spacingVerticalL,
-    color: tokens.colorNeutralForeground3,
+    color: '#92400E',
   },
   batchActions: {
     display: 'flex',
     gap: tokens.spacingHorizontalS,
     marginTop: tokens.spacingVerticalS,
+  },
+  batchButton: {
+    background: 'linear-gradient(to bottom, #FCD34D, #FBBF24)',
+    border: 'none',
+    color: '#78350F',
+    fontWeight: tokens.fontWeightSemibold,
+    boxShadow: 'inset 0 1px 0 rgba(254, 243, 199, 0.5), ' + glassStyles.shadowMd,
+    '&:hover': {
+      background: 'linear-gradient(to bottom, #FDE68A, #FCD34D)',
+      boxShadow: 'inset 0 1px 0 rgba(254, 243, 199, 0.5), ' + glassStyles.shadowLg,
+    },
+    '&:disabled': {
+      opacity: 0.6,
+    },
   },
 });
 
@@ -200,8 +243,7 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
     <div className={styles.container}>
       <Button
         className={styles.analyzeButton}
-        appearance="primary"
-        icon={isAnalyzing ? <Spinner size="tiny" /> : <DocumentSearch24Regular />}
+        icon={isAnalyzing ? <Spinner size="tiny" style={{ color: '#78350F' }} /> : <DocumentSearch24Regular />}
         onClick={handleAnalyzeDocument}
         disabled={isAnalyzing}
         size="large"
@@ -241,7 +283,7 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
 
               <div className={styles.batchActions}>
                 <Button
-                  appearance="primary"
+                  className={styles.batchButton}
                   onClick={handleApplyAllSuggestions}
                   disabled={selectedClauses.size === 0}
                 >
@@ -284,12 +326,16 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
       )}
 
       {!analysisResult && !isAnalyzing && (
-        <Card>
+        <Card className={styles.readyCard}>
           <CardHeader
             header={
-              <Text weight="semibold">Ready to Analyze</Text>
+              <Text weight="semibold" className={styles.readyCardTitle}>Ready to Analyze</Text>
             }
-            description="Click 'Analyze Document' to scan your contract for compliance issues, risks, and get AI-powered suggestions."
+            description={
+              <Text className={styles.readyCardDescription}>
+                Click 'Analyze Document' to scan your contract for compliance issues, risks, and get AI-powered suggestions.
+              </Text>
+            }
           />
         </Card>
       )}

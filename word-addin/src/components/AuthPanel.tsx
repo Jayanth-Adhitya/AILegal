@@ -12,6 +12,7 @@ import {
 import { Person24Regular, LockClosed24Regular } from '@fluentui/react-icons';
 import { backendAPI } from '../services/backend-api';
 import { User } from '../types/analysis';
+import { glassStyles } from '../theme';
 
 const useStyles = makeStyles({
   container: {
@@ -22,9 +23,37 @@ const useStyles = makeStyles({
     height: '100%',
     padding: tokens.spacingHorizontalL,
   },
+  logoContainer: {
+    width: '80px',
+    height: '80px',
+    padding: '16px',
+    borderRadius: '24px',
+    background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.5), rgba(254, 240, 138, 0.3))',
+    boxShadow: '0 12px 48px 0 rgba(251, 191, 36, 0.25), inset 0 1px 0 0 rgba(255, 255, 255, 0.6)',
+    marginBottom: tokens.spacingVerticalL,
+  },
+  logoImage: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'contain',
+    filter: 'drop-shadow(0 4px 6px rgba(251, 191, 36, 0.4))',
+  },
   card: {
     width: '100%',
     maxWidth: '400px',
+    background: glassStyles.cardBackground,
+    backdropFilter: `blur(${glassStyles.glassBlur})`,
+    WebkitBackdropFilter: `blur(${glassStyles.glassBlur})`,
+    boxShadow: glassStyles.shadowMd,
+    borderRadius: tokens.borderRadiusXLarge,
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+  },
+  cardTitle: {
+    color: '#78350F',
+    fontWeight: tokens.fontWeightBold,
+  },
+  cardDescription: {
+    color: '#92400E',
   },
   form: {
     display: 'flex',
@@ -39,13 +68,36 @@ const useStyles = makeStyles({
   },
   label: {
     fontWeight: tokens.fontWeightSemibold,
+    color: '#78350F',
+  },
+  input: {
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    border: '1px solid rgba(251, 191, 36, 0.3)',
+    '&:focus': {
+      borderColor: '#F59E0B',
+    },
   },
   button: {
     marginTop: tokens.spacingVerticalS,
+    background: 'linear-gradient(to bottom, #FCD34D, #FBBF24)',
+    border: 'none',
+    color: '#78350F',
+    fontWeight: tokens.fontWeightSemibold,
+    boxShadow: 'inset 0 1px 0 rgba(254, 243, 199, 0.5), ' + glassStyles.shadowMd,
+    '&:hover': {
+      background: 'linear-gradient(to bottom, #FDE68A, #FCD34D)',
+      boxShadow: 'inset 0 1px 0 rgba(254, 243, 199, 0.5), ' + glassStyles.shadowLg,
+    },
+    '&:disabled': {
+      opacity: 0.6,
+    },
   },
   error: {
-    color: tokens.colorPaletteRedForeground1,
+    color: '#DC2626',
     fontSize: tokens.fontSizeBase200,
+    backgroundColor: 'rgba(254, 226, 226, 0.5)',
+    padding: tokens.spacingVerticalXS,
+    borderRadius: tokens.borderRadiusMedium,
   },
 });
 
@@ -86,14 +138,26 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onLogin, onError }) => {
 
   return (
     <div className={styles.container}>
+      <div className={styles.logoContainer}>
+        <img
+          src="/assets/cirilla-logo.svg"
+          alt="Cirilla Logo"
+          className={styles.logoImage}
+        />
+      </div>
+
       <Card className={styles.card}>
         <CardHeader
           header={
-            <Text weight="semibold" size={500}>
-              Sign In
+            <Text weight="semibold" size={500} className={styles.cardTitle}>
+              Welcome back
             </Text>
           }
-          description="Sign in to access contract analysis features"
+          description={
+            <Text className={styles.cardDescription}>
+              Sign in to access contract analysis features
+            </Text>
+          }
         />
 
         <form className={styles.form} onSubmit={handleSubmit}>
@@ -103,10 +167,11 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onLogin, onError }) => {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              contentBefore={<Person24Regular />}
-              placeholder="your@email.com"
+              contentBefore={<Person24Regular style={{ color: '#F59E0B' }} />}
+              placeholder="you@company.com"
               required
               disabled={isLoading}
+              className={styles.input}
             />
           </div>
 
@@ -116,10 +181,11 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onLogin, onError }) => {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              contentBefore={<LockClosed24Regular />}
+              contentBefore={<LockClosed24Regular style={{ color: '#F59E0B' }} />}
               placeholder="••••••••"
               required
               disabled={isLoading}
+              className={styles.input}
             />
           </div>
 
@@ -127,7 +193,6 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onLogin, onError }) => {
 
           <Button
             className={styles.button}
-            appearance="primary"
             type="submit"
             disabled={isLoading || !email || !password}
           >

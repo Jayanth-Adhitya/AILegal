@@ -17,7 +17,7 @@ const useStyles = makeStyles({
     display: 'flex',
     flexDirection: 'column',
     height: '100vh',
-    backgroundColor: tokens.colorNeutralBackground1,
+    background: 'linear-gradient(to bottom right, #FFFAEB, #FEF3C7, #FDE68A)',
   },
   content: {
     flex: 1,
@@ -31,6 +31,24 @@ const useStyles = makeStyles({
     justifyContent: 'center',
     height: '100%',
     gap: tokens.spacingVerticalM,
+  },
+  loadingLogo: {
+    width: '80px',
+    height: '80px',
+    padding: '16px',
+    borderRadius: '24px',
+    background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.5), rgba(254, 240, 138, 0.3))',
+    boxShadow: '0 12px 48px 0 rgba(251, 191, 36, 0.25), inset 0 1px 0 0 rgba(255, 255, 255, 0.6)',
+  },
+  loadingLogoImage: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'contain',
+    filter: 'drop-shadow(0 4px 6px rgba(251, 191, 36, 0.4))',
+  },
+  loadingText: {
+    color: '#78350F',
+    fontWeight: tokens.fontWeightSemibold,
   },
 });
 
@@ -130,8 +148,15 @@ const App: React.FC = () => {
     return (
       <div className={styles.container}>
         <div className={styles.loadingContainer}>
-          <Spinner size="large" />
-          <Text>Initializing AI Legal Assistant...</Text>
+          <div className={styles.loadingLogo}>
+            <img
+              src="/assets/cirilla-logo.svg"
+              alt="Cirilla Logo"
+              className={styles.loadingLogoImage}
+            />
+          </div>
+          <Text className={styles.loadingText}>Initializing Cirilla AI...</Text>
+          <Spinner size="large" style={{ color: '#F59E0B' }} />
         </div>
       </div>
     );
